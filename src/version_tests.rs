@@ -1,14 +1,7 @@
 use semver::Version;
 
+use super::{BumpType, YearMonth, bump_calver, next_version, parse_version};
 use crate::config::VersioningType;
-
-use super::{
-    bump_calver,
-    next_version,
-    parse_version,
-    BumpType,
-    YearMonth,
-};
 
 fn version(input: &str) -> Version {
     Version::parse(input).expect("test version should be valid SemVer")
@@ -49,17 +42,10 @@ fn parse_version_rejects_invalid_or_unsupported_versions() {
 
 #[test]
 fn parse_version_reports_the_invalid_input() {
-    let err = parse_version("1.2.3-rc.1")
-        .expect_err("prerelease version should be rejected");
+    let err = parse_version("1.2.3-rc.1").expect_err("prerelease version should be rejected");
 
-    assert!(
-        err.to_string().contains("1.2.3-rc.1"),
-        "error: {err}",
-    );
-    assert!(
-        err.to_string().contains("prerelease"),
-        "error: {err}",
-    );
+    assert!(err.to_string().contains("1.2.3-rc.1"), "error: {err}",);
+    assert!(err.to_string().contains("prerelease"), "error: {err}",);
 }
 
 #[test]
@@ -79,18 +65,10 @@ fn next_version_bumps_semver_versions() {
     for (input, bump, expected) in cases {
         let current = version(input);
 
-        let got = next_version(
-            &current,
-            VersioningType::Semver,
-            bump,
-        )
-        .expect("SemVer bump should succeed");
+        let got = next_version(&current, VersioningType::Semver, bump)
+            .expect("SemVer bump should succeed");
 
-        assert_eq!(
-            got,
-            version(expected),
-            "case: {input} {bump:?}",
-        );
+        assert_eq!(got, version(expected), "case: {input} {bump:?}",);
     }
 }
 
@@ -166,8 +144,7 @@ fn bump_calver_increments_or_rolls_over_correctly() {
     for (input, today, expected) in cases {
         let current = version(input);
 
-        let got = bump_calver(&current, today)
-            .expect("CalVer bump should succeed");
+        let got = bump_calver(&current, today).expect("CalVer bump should succeed");
 
         assert_eq!(
             got,
@@ -187,29 +164,22 @@ fn bump_calver_rejects_a_future_dated_version() {
         month: 11,
     };
 
-    let err = bump_calver(&current, today)
-        .expect_err("future-dated CalVer version should be rejected");
+    let err =
+        bump_calver(&current, today).expect_err("future-dated CalVer version should be rejected");
 
     assert!(
         err.to_string().contains("later than the current UTC month"),
         "error: {err}",
     );
-    assert!(
-        err.to_string().contains("review"),
-        "error: {err}",
-    );
+    assert!(err.to_string().contains("review"), "error: {err}",);
 }
 
 #[test]
 fn next_version_rejects_invalid_versioning_and_bump_combinations() {
     let current = version("1.2.3");
 
-    let semver_date_err = next_version(
-        &current,
-        VersioningType::Semver,
-        BumpType::Date,
-    )
-    .expect_err("SemVer date bump should be rejected");
+    let semver_date_err = next_version(&current, VersioningType::Semver, BumpType::Date)
+        .expect_err("SemVer date bump should be rejected");
 
     assert!(
         semver_date_err
@@ -218,12 +188,8 @@ fn next_version_rejects_invalid_versioning_and_bump_combinations() {
         "error: {semver_date_err}",
     );
 
-    let calver_patch_err = next_version(
-        &current,
-        VersioningType::Calver,
-        BumpType::Patch,
-    )
-    .expect_err("CalVer patch bump should be rejected");
+    let calver_patch_err = next_version(&current, VersioningType::Calver, BumpType::Patch)
+        .expect_err("CalVer patch bump should be rejected");
 
     assert!(
         calver_patch_err.to_string().contains("must bump by date"),
@@ -239,12 +205,8 @@ fn next_version_uses_the_current_utc_month_for_calver() {
 
     let before = YearMonth::now_utc();
 
-    let got = next_version(
-        &current,
-        VersioningType::Calver,
-        BumpType::Date,
-    )
-    .expect("CalVer date bump should succeed");
+    let got = next_version(&current, VersioningType::Calver, BumpType::Date)
+        .expect("CalVer date bump should succeed");
 
     let after = YearMonth::now_utc();
 

@@ -1,6 +1,5 @@
 use anyhow::{Context, Result, bail, ensure};
-use jiff::Timestamp;
-use jiff::tz::TimeZone;
+use jiff::{Timestamp, tz::TimeZone};
 use semver::Version;
 
 use crate::config::VersioningType;
@@ -33,8 +32,7 @@ impl YearMonth {
 }
 
 pub fn parse_version(s: &str) -> Result<Version> {
-    let ver = Version::parse(s)
-        .with_context(|| format!("Invalid current_version '{s}'"))?;
+    let ver = Version::parse(s).with_context(|| format!("Invalid current_version '{s}'"))?;
 
     ensure!(
         ver.pre.is_empty(),
@@ -59,29 +57,43 @@ fn bump_semver(current: &Version, bump: BumpType) -> Version {
 
 fn bump_calver(current: &Version, today: YearMonth) -> Result<Version> {
     if (current.major, current.minor) > (today.year, today.month) {
-        bail!("Current CalVer version '{current}' is later than the current UTC month '{}.{}'; review the configured version before bumping.", today.year, today.month);
+        bail!(
+            "Current CalVer version '{current}' is later than the current UTC month '{}.{}'; review the configured version before bumping.",
+            today.year,
+            today.month
+        );
     }
 
     if (current.major, current.minor) == (today.year, today.month) {
-        Ok(Version::new(current.major, current.minor, current.patch + 1))
+        Ok(Version::new(
+            current.major,
+            current.minor,
+            current.patch + 1,
+        ))
     } else {
         Ok(Version::new(today.year, today.month, 0))
     }
 }
 
-pub fn next_version(current: &Version, versioning: VersioningType, bump: BumpType) -> Result<Version> {
+pub fn next_version(
+    current: &Version,
+    versioning: VersioningType,
+    bump: BumpType,
+) -> Result<Version> {
     match (versioning, bump) {
         (VersioningType::Semver, BumpType::Major | BumpType::Minor | BumpType::Patch) => {
             Ok(bump_semver(current, bump))
-        },
+        }
         (VersioningType::Calver, BumpType::Date) => {
             let today = YearMonth::now_utc();
             bump_calver(current, today)
-        },
+        }
         (VersioningType::Semver, BumpType::Date) => {
             bail!("Semver projects must bump by major, minor, or patch.");
-        },
-        (VersioningType::Calver, _) => {bail!("Calver projects must bump by date.");}
+        }
+        (VersioningType::Calver, _) => {
+            bail!("Calver projects must bump by date.");
+        }
     }
 }
 
