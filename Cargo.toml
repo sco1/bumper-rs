@@ -1,0 +1,29 @@
+[package]
+name = "sco1-bumper"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Automatically increment the project's version number."
+license = "MIT"
+repository = "https://github.com/sco1/bumper-rs"
+readme = "README.md"
+keywords = ["version", "bump", "semver", "calver", "cli"]
+categories = ["command-line-utilities", "development-tools"]
+
+[[bin]]
+name = "bumper"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.104"
+clap = { version = "4.6.9", features = ["derive"] }
+jiff = "1.0.2"
+semver = "1.0.28"
+serde = { version = "1.0.229", features = ["derive"] }
+similar = "3.2.1"
+toml = "1.2.2"
+
+[dev-dependencies]
+assert_cmd = "2.2.2"
+predicates = "3.1.4"
+tempfile = "3.27.0"

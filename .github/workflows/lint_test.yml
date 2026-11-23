@@ -1,0 +1,70 @@
+name: lint-and-test
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+    tags-ignore:
+      - "**"  # Skip re-linting when tags are added
+
+permissions: {}
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+    - uses: actions/checkout@v7.0.1
+      with:
+        persist-credentials: false
+
+    # .rustfmt.toml uses unstable options (group_imports, imports_granularity), which are only
+    # honored by nightly rustfmt
+    - name: Install nightly rustfmt
+      run: rustup toolchain install nightly --profile minimal --component rustfmt
+
+    - name: Check formatting
+      run: cargo +nightly fmt --check
+
+  clippy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+    - uses: actions/checkout@v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Install stable toolchain
+      run: rustup toolchain install stable --profile minimal --component clippy
+
+    - name: Run clippy
+      run: cargo +stable clippy --all-targets --locked
+
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        toolchain: [stable, "1.85"]  # Keep MSRV in sync with Cargo.toml rust-version
+      fail-fast: false
+
+    steps:
+    - uses: actions/checkout@v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Install ${{ matrix.toolchain }} toolchain
+      run: rustup toolchain install ${{ matrix.toolchain }} --profile minimal
+
+    - name: Run tests
+      run: cargo +${{ matrix.toolchain }} test --locked
