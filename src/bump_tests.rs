@@ -4,7 +4,15 @@ use anyhow::Result;
 use semver::Version;
 use tempfile::TempDir;
 
-use super::{apply, apply_rules, group_rules, plan, replace_key, replace_search};
+use super::{
+    apply,
+    apply_rules,
+    group_rules,
+    plan,
+    preview,
+    replace_key,
+    replace_search,
+};
 use crate::config::{BumpRule, RuleKind};
 
 const SAMPLE_CARGO: &str = r#"[package]
@@ -71,6 +79,21 @@ fn bump(root: &Path, rules: &[BumpRule], current: &str, next: &str) -> Result<St
 
 fn read(root: &Path, name: &str) -> String {
     fs::read_to_string(root.join(name)).expect("could not read test file")
+}
+
+/// Plan and preview the provided rules, returning the reported output.
+fn preview_bump(
+    root: &Path,
+    rules: &[BumpRule],
+    current: &str,
+    next: &str,
+) -> Result<String> {
+    let changes = plan(root, rules, &version(current), &version(next))?;
+
+    let mut out = Vec::new();
+    preview(&changes, &mut out)?;
+
+    Ok(String::from_utf8(out).expect("output should be valid UTF-8"))
 }
 
 #[test]
@@ -516,4 +539,34 @@ fn plan_names_the_file_when_a_key_rule_fails_and_writes_nothing() {
     );
     assert!(message.contains("is not a string"), "error: {message}");
     assert_eq!(read(repo.path(), "Cargo.toml"), SAMPLE_CARGO);
+}
+
+#[test]
+fn preview_renders_diffs_and_does_not_modify_files() {
+    let repo = repo_with(&[
+        ("Cargo.toml", SAMPLE_CARGO.as_bytes()),
+        ("README.md", SAMPLE_README.as_bytes()),
+    ]);
+    let rules = [
+        search_rule("./Cargo.toml", r#"version = "{current_version}""#),
+        search_rule("./README.md", "does-not-appear/{current_version}"),
+    ];
+
+    let output = preview_bump(repo.path(), &rules, "0.1.0", "0.2.0")
+        .expect("preview should succeed");
+
+    assert_eq!(
+        output,
+        concat!(
+            "--- ./Cargo.toml\n",
+            "+++ ./Cargo.toml\n",
+            "@@ -3 +3 @@\n",
+            "-version = \"0.1.0\"\n",
+            "+version = \"0.2.0\"\n",
+            "./README.md - No changes.\n",
+        ),
+    );
+
+    assert_eq!(read(repo.path(), "Cargo.toml"), SAMPLE_CARGO);
+    assert_eq!(read(repo.path(), "README.md"), SAMPLE_README);
 }

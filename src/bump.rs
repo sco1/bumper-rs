@@ -9,7 +9,10 @@ use anyhow::{Context, Result, bail};
 use semver::Version;
 use toml_edit::Document;
 
-use crate::config::{BUMPER_CONFIG_FILE, BumpRule, RuleKind};
+use crate::{
+    config::{BUMPER_CONFIG_FILE, BumpRule, RuleKind},
+    diff,
+};
 
 const VERSION_TOKEN: &str = "{current_version}";
 
@@ -138,6 +141,19 @@ pub fn apply(changes: &[FileChange], out: &mut impl Write) -> Result<()> {
         fs::write(&fc.path, &fc.updated)
             .with_context(|| format!("Could not write bump target '{}'", fc.file))?;
         writeln!(out, "Bumped {}", fc.file)?;
+    }
+
+    Ok(())
+}
+
+pub fn preview(changes: &[FileChange], out: &mut impl Write) -> Result<()> {
+    for fc in changes {
+        if !fc.is_changed() {
+            writeln!(out, "{} - No changes.", fc.file)?;
+            continue;
+        }
+
+        write!(out, "{}", diff::render(&fc.file, &fc.original, &fc.updated))?;
     }
 
     Ok(())

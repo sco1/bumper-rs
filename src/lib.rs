@@ -3,4 +3,5 @@
 //! The binary (`bumper`) is a thin wrapper around this library
 pub mod bump;
 pub mod config;
+mod diff;
 pub mod version;
