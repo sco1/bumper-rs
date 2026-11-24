@@ -1,3 +1,9 @@
+//! Planning, applying, and previewing version replacements.
+//!
+//! To keep a failure of any individual rule from leaving the project partially bumped, bumping is
+//! split into two phases:
+//!     1. [`plan`] reads every target file and computes its updated contents in memory
+//!     2. [`apply`] writes the results (or [`preview`] renders them as a diff during a dry run)
 use std::{
     collections::HashMap,
     fs,
@@ -14,22 +20,33 @@ use crate::{
     diff,
 };
 
+/// Placeholder for [`RuleKind::Search`] patterns that is substituted with a version string.
 const VERSION_TOKEN: &str = "{current_version}";
 
+/// The planned before/after contents of a single target file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileChange {
+    /// Resolved path used for writing (`root` joined with `file`).
     path: PathBuf,
+    /// File path as spelled in the configuration, used in user-facing output.
     file: String,
+    /// File contents as read from disk.
     original: String,
+    /// File contents after all of the file's rules have been applied.
     updated: String,
 }
 
 impl FileChange {
+    /// Return `true` if applying the rules altered the file contents.
     fn is_changed(&self) -> bool {
         self.original != self.updated
     }
 }
 
+/// Group rules by target file, preserving first-seen file order and per-file rule order.
+///
+/// Files are grouped by their configured spelling; [`plan`] separately rejects distinct spellings
+/// that resolve to the same file.
 fn group_rules(rules: &[BumpRule]) -> Vec<(&str, Vec<&RuleKind>)> {
     // For this application we'll generally only have a handful of replacement rules, so searching
     // through Vec should be sufficient vs. using HashMap or indexmap
@@ -44,6 +61,10 @@ fn group_rules(rules: &[BumpRule]) -> Vec<(&str, Vec<&RuleKind>)> {
     groups
 }
 
+/// Replace every occurrence of `search` (with [`VERSION_TOKEN`] set to `current`) by `search`
+/// with the token set to `next`.
+///
+/// A pattern without [`VERSION_TOKEN`] matches its own replacement, so the content is unchanged.
 fn replace_search(content: &str, search: &str, current: &str, next: &str) -> String {
     content.replace(
         &search.replace(VERSION_TOKEN, current),
@@ -51,6 +72,16 @@ fn replace_search(content: &str, search: &str, current: &str, next: &str) -> Str
     )
 }
 
+/// Replace the string value at the dotted TOML `key` if it equals `current`.
+///
+/// The edit is made by splicing the value's source span, so all other formatting, comments, and
+/// quoting in the file are preserved. A missing key, or a value that does not equal `current`,
+/// leaves the content unchanged.
+///
+/// # Errors
+///
+/// Returns an error if `content` is not valid TOML, or if `key` resolves to a table or a non-string
+/// value.
 fn replace_key(content: &str, key: &str, current: &str, next: &str) -> Result<String> {
     let doc = Document::parse(content).context("Could not parse file as TOML")?;
 
@@ -84,6 +115,7 @@ fn replace_key(content: &str, key: &str, current: &str, next: &str) -> Result<St
     ))
 }
 
+/// Apply each rule to `content` in order, feeding each rule's output into the next.
 fn apply_rules(content: &str, kinds: &[&RuleKind], current: &str, next: &str) -> Result<String> {
     kinds
         .iter()
@@ -93,6 +125,16 @@ fn apply_rules(content: &str, kinds: &[&RuleKind], current: &str, next: &str) ->
         })
 }
 
+/// Compute the [`FileChange`] for every file targeted by `rules`; no writing is done by this step.
+///
+/// Rule file paths are resolved relative to `root`. One `FileChange` is returned per distinct file,
+/// in the order each file first appears in `rules`.
+///
+/// # Errors
+///
+/// Returns an error if a target file does not exist or cannot be read, if two configured paths
+/// resolve to the same file, if a `key` rule targets a file that is not valid TOML, or a key has a
+/// value that is not a string.
 pub fn plan(
     root: &Path,
     rules: &[BumpRule],
@@ -131,6 +173,14 @@ pub fn plan(
     Ok(changes)
 }
 
+/// Write each changed file to disk, reporting the outcome for every file to `out`.
+///
+/// Unchanged files are reported as such and left untouched.
+///
+/// # Errors
+///
+/// Returns an error if a file cannot be written or `out` cannot be written to. Files are written in
+/// order, so a write failure part way through leaves earlier files already bumped.
 pub fn apply(changes: &[FileChange], out: &mut impl Write) -> Result<()> {
     for fc in changes {
         if !fc.is_changed() {
@@ -146,6 +196,13 @@ pub fn apply(changes: &[FileChange], out: &mut impl Write) -> Result<()> {
     Ok(())
 }
 
+/// Write a zero-context unified diff of each planned change to `out`, without modifying any files.
+///
+/// Output for consecutive files is separated by a blank line.
+///
+/// # Errors
+///
+/// Returns an error if `out` cannot be written to.
 pub fn preview(changes: &[FileChange], out: &mut impl Write) -> Result<()> {
     for (index, fc) in changes.iter().enumerate() {
         // Add a delimiter in between multi-file output

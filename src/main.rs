@@ -1,9 +1,14 @@
+//! Entry point for the `bumper` binary.
+//!
+//! Parses the command line and delegates to [`sco1_bumper::run`], using the current working
+//! directory as the project root.
 use std::{env, io, process::ExitCode};
 
 use anyhow::{Context, Result};
 use clap::Parser;
 use sco1_bumper::{cli::Cli, run};
 
+/// Run the CLI, printing any error chain to stderr and mapping the outcome to an exit code.
 fn main() -> ExitCode {
     match try_main() {
         Ok(()) => ExitCode::SUCCESS,
@@ -14,6 +19,7 @@ fn main() -> ExitCode {
     }
 }
 
+/// Fallible body of [`main`], separated so errors can be propagated with `?`.
 fn try_main() -> Result<()> {
     let cli = Cli::parse();
 

@@ -1,3 +1,7 @@
+//! Loading and generating the `.bumper.toml` configuration file.
+//!
+//! The configuration lives under a `[tool.bumper]` table, with one `[[tool.bumper.files]]` entry
+//! per replacement rule. See the README for the full format.
 use std::{
     fs,
     io::{ErrorKind, Write},
@@ -11,8 +15,12 @@ use serde::{Deserialize, Deserializer, de};
 
 use crate::version::{YearMonth, parse_version};
 
+/// Configuration file name, resolved relative to the project root.
 pub(crate) const BUMPER_CONFIG_FILE: &str = ".bumper.toml";
 
+/// Versioning scheme used by the project.
+///
+/// Deserialized from the lowercase strings `"semver"` and `"calver"`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum VersioningType {
@@ -20,12 +28,21 @@ pub enum VersioningType {
     Calver,
 }
 
+/// How a [`BumpRule`] locates the version to replace within its target file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuleKind {
+    /// Plain-text search pattern containing a `{current_version}` token.
+    ///
+    /// Every occurrence of the pattern, with the token substituted by the current version, is
+    /// replaced by the same pattern with the token substituted by the next version.
     Search(String),
+    /// Dotted TOML key path, e.g. `package.version`.
+    ///
+    /// Only the string value at that key is updated, and only if it equals the current version.
     Key(String),
 }
 
+/// Raw `[[tool.bumper.files]]` entry, validated into a [`BumpRule`] on deserialization.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawBumpRule {
@@ -34,13 +51,17 @@ struct RawBumpRule {
     key: Option<String>,
 }
 
+/// A single replacement rule targeting one file.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(try_from = "RawBumpRule")]
 pub struct BumpRule {
+    /// Path to the target file, relative to the project root.
     pub file: String,
+    /// How the version is located within `file`.
     pub kind: RuleKind,
 }
 
+/// Require exactly one of `search` or `key` to be set.
 impl TryFrom<RawBumpRule> for BumpRule {
     type Error = String; // anything that implements Display
 
@@ -68,21 +89,27 @@ impl TryFrom<RawBumpRule> for BumpRule {
     }
 }
 
-// Unknown keys in [tool.bumper] are intentionally ignored
+/// Parsed contents of the `[tool.bumper]` table; unknown keys in [tool.bumper] are intentionally
+/// ignored
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Config {
+    /// The project's current release version.
     #[serde(deserialize_with = "deserialize_release_version")]
     pub current_version: Version,
+    /// Versioning scheme used to compute the next version.
     pub versioning_type: VersioningType,
+    /// Replacement rules, in the order they appear in the configuration file.
     pub files: Vec<BumpRule>,
 }
 
 // Wrappers for the [tool.bumper] nesting; other [tool.*] tables are ignored
+/// Top level of the configuration file.
 #[derive(Deserialize)]
 struct ConfigFile {
     tool: Tool,
 }
 
+/// The `[tool]` table of the configuration file.
 #[derive(Deserialize)]
 struct Tool {
     bumper: Config,
@@ -99,6 +126,12 @@ where
     parse_version(&raw).map_err(|e| de::Error::custom(format!("{e:#}")))
 }
 
+/// Load the [`Config`] from `.bumper.toml` in `root`.
+///
+/// # Errors
+///
+/// Returns an error if the file is missing or unreadable, is not valid TOML, lacks a
+/// `[tool.bumper]` table, has an invalid `current_version`, or contains a malformed rule.
 pub fn load(root: &Path) -> Result<Config> {
     let cfg_file = root.join(BUMPER_CONFIG_FILE);
 
@@ -120,6 +153,10 @@ pub fn load(root: &Path) -> Result<Config> {
     Ok(parsed.tool.bumper)
 }
 
+/// Render the starter configuration used by [`init`].
+///
+/// The starting version is `0.1.0` for SemVer, or `<year>.<month>.0` from `today` for CalVer. The
+/// template includes a single rule that bumps `package.version` in `./Cargo.toml`.
 fn init_template(versioning_type: VersioningType, today: YearMonth) -> String {
     let current_version = match versioning_type {
         VersioningType::Semver => "0.1.0".to_owned(),
@@ -143,6 +180,15 @@ key = "package.version"
     )
 }
 
+/// Write a starter `.bumper.toml` into `root`.
+///
+/// `today` sets the starting version for CalVer projects. An existing configuration file is only
+/// replaced when `ignore_existing` is set; otherwise an existing file is never clobbered.
+///
+/// # Errors
+///
+/// Returns an error if the configuration file already exists (and `ignore_existing` is not set), or
+/// if it cannot be written.
 pub fn init(
     root: &Path,
     versioning_type: VersioningType,

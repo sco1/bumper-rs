@@ -1,3 +1,4 @@
+//! Command-line interface definition.
 use clap::{ArgAction, Parser, Subcommand};
 
 use crate::{config::VersioningType, version::BumpType};

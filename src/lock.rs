@@ -1,3 +1,7 @@
+//! Post-bump consistency check between `Cargo.toml` and `Cargo.lock`.
+//!
+//! Bumping the manifest version leaves `Cargo.lock` stale until Cargo next refreshes it. This
+//! module only detects that situation and prints a note; it never modifies either file.
 use std::{
     fs,
     io::{ErrorKind, Write},
@@ -7,9 +11,12 @@ use std::{
 use anyhow::{Context, Result, anyhow, bail};
 use toml::Value;
 
+/// Cargo manifest file name, resolved relative to the project root.
 const CARGO_MANIFEST_FILE: &str = "Cargo.toml";
+/// Cargo lockfile name, resolved relative to the project root.
 const CARGO_LOCK_FILE: &str = "Cargo.lock";
 
+/// Read `path` to a string, returning `Ok(None)` if the file does not exist.
 fn read_if_present(path: &Path) -> Result<Option<String>> {
     match fs::read_to_string(path) {
         Ok(contents) => Ok(Some(contents)),
@@ -76,6 +83,14 @@ fn locked_versions<'a>(lock: &'a Value, name: &str) -> Vec<&'a str> {
 ///
 /// This check never changes either file. It prints a non-fatal note when the lockfile does not
 /// contain an exact-name package entry at the manifest version.
+///
+/// The check is silently skipped if either file is missing, if the manifest is a virtual
+/// workspace, or if the package inherits its version from the workspace.
+///
+/// # Errors
+///
+/// Returns an error if either file exists but cannot be read or parsed, if the manifest's
+/// `[package]` table is malformed, or if `out` cannot be written to.
 pub(crate) fn check(root: &Path, out: &mut impl Write) -> Result<()> {
     let manifest_path = root.join(CARGO_MANIFEST_FILE);
     let Some(manifest_contents) = read_if_present(&manifest_path)? else {
@@ -102,7 +117,8 @@ pub(crate) fn check(root: &Path, out: &mut impl Write) -> Result<()> {
     if versions.is_empty() {
         writeln!(
             out,
-            "NOTE: Cargo.lock has no package entry named '{name}'; run 'cargo update --workspace' to refresh Cargo.lock."
+            "NOTE: Cargo.lock has no package entry named '{name}'; \
+            run 'cargo update --workspace' to refresh Cargo.lock."
         )?;
         return Ok(());
     }
@@ -110,7 +126,9 @@ pub(crate) fn check(root: &Path, out: &mut impl Write) -> Result<()> {
     if versions.len() == 1 {
         writeln!(
             out,
-            "NOTE: Cargo.lock version for package '{name}' is '{}', but Cargo.toml has '{manifest_version}'; run 'cargo update --workspace' to refresh Cargo.lock.",
+            "NOTE: Cargo.lock version for package '{name}' is '{}', \
+            but Cargo.toml has '{manifest_version}'; \
+            run 'cargo update --workspace' to refresh Cargo.lock.",
             versions[0]
         )?;
         return Ok(());
@@ -123,7 +141,9 @@ pub(crate) fn check(root: &Path, out: &mut impl Write) -> Result<()> {
         .join(", ");
     writeln!(
         out,
-        "NOTE: Cargo.lock versions for package '{name}' are {locked_versions}, but Cargo.toml has '{manifest_version}'; run 'cargo update --workspace' to refresh Cargo.lock."
+        "NOTE: Cargo.lock versions for package '{name}' are {locked_versions}, \
+        but Cargo.toml has '{manifest_version}'; \
+        run 'cargo update --workspace' to refresh Cargo.lock."
     )?;
 
     Ok(())
