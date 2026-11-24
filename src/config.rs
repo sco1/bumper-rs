@@ -15,11 +15,52 @@ pub enum VersioningType {
     Calver,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RuleKind {
+    Search(String),
+    Key(String),
+}
+
+#[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RawBumpRule {
+    file: String,
+    search: Option<String>,
+    key: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(try_from = "RawBumpRule")]
 pub struct BumpRule {
     pub file: String,
-    pub search: String,
+    pub kind: RuleKind,
+}
+
+impl TryFrom<RawBumpRule> for BumpRule {
+    type Error = String; // anything that implements Display
+
+    fn try_from(raw: RawBumpRule) -> Result<Self, Self::Error> {
+        let kind = match (raw.search, raw.key) {
+            (Some(search), None) => RuleKind::Search(search),
+            (None, Some(key)) => RuleKind::Key(key),
+            (Some(_), Some(_)) => {
+                return Err(format!(
+                    "rule for '{}' sets both `search` and `key`; use only one",
+                    raw.file
+                ));
+            }
+            (None, None) => {
+                return Err(format!(
+                    "rule for '{}' needs either `search` or `key`",
+                    raw.file
+                ));
+            }
+        };
+        Ok(BumpRule {
+            file: raw.file,
+            kind,
+        })
+    }
 }
 
 // Unknown keys in [tool.bumper] are intentionally ignored

@@ -3,7 +3,21 @@ use std::fs;
 use semver::Version;
 use tempfile::TempDir;
 
-use super::{BUMPER_CONFIG_FILE, BumpRule, Config, VersioningType, load};
+use super::{BUMPER_CONFIG_FILE, BumpRule, Config, RuleKind, VersioningType, load};
+
+fn search_rule(file: &str, search: &str) -> BumpRule {
+    BumpRule {
+        file: file.to_owned(),
+        kind: RuleKind::Search(search.to_owned()),
+    }
+}
+
+fn key_rule(file: &str, key: &str) -> BumpRule {
+    BumpRule {
+        file: file.to_owned(),
+        kind: RuleKind::Key(key.to_owned()),
+    }
+}
 
 fn temp_dir_with_config(contents: &str) -> TempDir {
     let temp_dir = TempDir::new().expect("could not create temporary directory");
@@ -71,14 +85,8 @@ search = "sco1-bumper/{current_version}"
         current_version: Version::new(2, 1, 1),
         versioning_type: VersioningType::Semver,
         files: vec![
-            BumpRule {
-                file: "./pyproject.toml".to_owned(),
-                search: r#"version = "{current_version}""#.to_owned(),
-            },
-            BumpRule {
-                file: "./README.md".to_owned(),
-                search: "sco1-bumper/{current_version}".to_owned(),
-            },
+            search_rule("./pyproject.toml", r#"version = "{current_version}""#),
+            search_rule("./README.md", "sco1-bumper/{current_version}"),
         ],
     };
 
@@ -154,21 +162,85 @@ search = "rev: v{current_version}"
     let config = load(temp_dir.path()).expect("configuration should load");
 
     let expected = vec![
-        BumpRule {
-            file: "./Cargo.toml".to_owned(),
-            search: r#"version = "{current_version}""#.to_owned(),
-        },
-        BumpRule {
-            file: "./README.md".to_owned(),
-            search: "sco1-bumper/{current_version}".to_owned(),
-        },
-        BumpRule {
-            file: "./README.md".to_owned(),
-            search: "rev: v{current_version}".to_owned(),
-        },
+        search_rule("./Cargo.toml", r#"version = "{current_version}""#),
+        search_rule("./README.md", "sco1-bumper/{current_version}"),
+        search_rule("./README.md", "rev: v{current_version}"),
     ];
 
     assert_eq!(config.files, expected);
+}
+
+#[test]
+fn load_accepts_key_rules_alongside_search_rules() {
+    let temp_dir = temp_dir_with_config(
+        r#"
+[tool.bumper]
+current_version = "0.1.0"
+versioning_type = "semver"
+
+[[tool.bumper.files]]
+file = "./Cargo.toml"
+key = "package.version"
+
+[[tool.bumper.files]]
+file = "./README.md"
+search = "sco1-bumper/{current_version}"
+"#,
+    );
+
+    let config = load(temp_dir.path()).expect("configuration should load");
+
+    let expected = vec![
+        key_rule("./Cargo.toml", "package.version"),
+        search_rule("./README.md", "sco1-bumper/{current_version}"),
+    ];
+
+    assert_eq!(config.files, expected);
+}
+
+#[test]
+fn load_requires_exactly_one_of_search_or_key() {
+    let cases = [
+        (
+            "both search and key",
+            r#"
+[tool.bumper]
+current_version = "0.1.0"
+versioning_type = "semver"
+
+[[tool.bumper.files]]
+file = "./Cargo.toml"
+search = 'version = "{current_version}"'
+key = "package.version"
+"#,
+            "rule for './Cargo.toml' sets both `search` and `key`",
+        ),
+        (
+            "neither search nor key",
+            r#"
+[tool.bumper]
+current_version = "0.1.0"
+versioning_type = "semver"
+
+[[tool.bumper.files]]
+file = "./Cargo.toml"
+"#,
+            "rule for './Cargo.toml' needs either `search` or `key`",
+        ),
+    ];
+
+    for (case, contents, expected) in cases {
+        let message = load_error(contents);
+
+        assert!(
+            message.contains(expected),
+            "case: {case}; expected {expected:?}; got: {message}"
+        );
+        assert!(
+            message.contains("line "),
+            "case: {case}; expected a location; got: {message}"
+        );
+    }
 }
 
 #[test]
@@ -243,18 +315,6 @@ versioning_type = "semver"
 search = 'version = "{current_version}"'
 "#,
             "missing field `file`",
-        ),
-        (
-            "file rule missing search",
-            r#"
-[tool.bumper]
-current_version = "0.1.0"
-versioning_type = "semver"
-
-[[tool.bumper.files]]
-file = "./Cargo.toml"
-"#,
-            "missing field `search`",
         ),
     ];
 

@@ -7,8 +7,9 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use semver::Version;
+use toml_edit::Document;
 
-use crate::config::{BUMPER_CONFIG_FILE, BumpRule};
+use crate::config::{BUMPER_CONFIG_FILE, BumpRule, RuleKind};
 
 const VERSION_TOKEN: &str = "{current_version}";
 
@@ -26,27 +27,67 @@ impl FileChange {
     }
 }
 
-fn group_rules(rules: &[BumpRule]) -> Vec<(&str, Vec<&str>)> {
+fn group_rules(rules: &[BumpRule]) -> Vec<(&str, Vec<&RuleKind>)> {
     // For this application we'll generally only have a handful of replacement rules, so searching
     // through Vec should be sufficient vs. using HashMap or indexmap
-    let mut groups: Vec<(&str, Vec<&str>)> = Vec::new();
+    let mut groups: Vec<(&str, Vec<&RuleKind>)> = Vec::new();
     for rule in rules {
         match groups.iter_mut().find(|(file, _)| *file == rule.file) {
-            Some((_, searches)) => searches.push(&rule.search),
-            None => groups.push((rule.file.as_str(), vec![rule.search.as_str()])),
+            Some((_, kinds)) => kinds.push(&rule.kind),
+            None => groups.push((rule.file.as_str(), vec![&rule.kind])),
         }
     }
 
     groups
 }
 
-fn replace_all(content: &str, searches: &[&str], current: &str, next: &str) -> String {
-    searches.iter().fold(content.to_owned(), |running, search| {
-        running.replace(
-            &search.replace(VERSION_TOKEN, current), // Old; replace template with current ver
-            &search.replace(VERSION_TOKEN, next),    // New; replace template with next ver
-        )
-    })
+fn replace_search(content: &str, search: &str, current: &str, next: &str) -> String {
+    content.replace(
+        &search.replace(VERSION_TOKEN, current),
+        &search.replace(VERSION_TOKEN, next),
+    )
+}
+
+fn replace_key(content: &str, key: &str, current: &str, next: &str) -> Result<String> {
+    let doc = Document::parse(content).context("Could not parse file as TOML")?;
+
+    let mut item = doc.as_item();
+    for part in key.split('.') {
+        match item.get(part) {
+            Some(child) if !child.is_none() => item = child,
+            _ => return Ok(content.to_owned()), // missing key: report as no change
+        }
+    }
+
+    let value = item
+        .as_value()
+        .with_context(|| format!("Key '{key}' is not a value"))?;
+    let found = value
+        .as_str()
+        .with_context(|| format!("Key '{key}' is not a string"))?;
+    if found != current {
+        return Ok(content.to_owned());
+    }
+
+    let span = value
+        .span()
+        .with_context(|| format!("Key '{key}' has no source location"))?;
+    let replaced = content[span.clone()].replacen(current, next, 1);
+    Ok(format!(
+        "{}{}{}",
+        &content[..span.start],
+        replaced,
+        &content[span.end..]
+    ))
+}
+
+fn apply_rules(content: &str, kinds: &[&RuleKind], current: &str, next: &str) -> Result<String> {
+    kinds
+        .iter()
+        .try_fold(content.to_owned(), |running, kind| match kind {
+            RuleKind::Search(search) => Ok(replace_search(&running, search, current, next)),
+            RuleKind::Key(key) => replace_key(&running, key, current, next),
+        })
 }
 
 pub fn plan(
@@ -59,7 +100,7 @@ pub fn plan(
     let mut changes: Vec<FileChange> = Vec::new();
     let (current, next) = (current.to_string(), next.to_string());
 
-    for (file, searches) in group_rules(rules) {
+    for (file, kinds) in group_rules(rules) {
         let path = root.join(file);
         let canonical = fs::canonicalize(&path)
             .with_context(|| format!("Could not locate bump target '{file}'"))?;
@@ -74,7 +115,8 @@ pub fn plan(
 
         let original = fs::read_to_string(&path)
             .with_context(|| format!("Could not read bump target '{file}'"))?;
-        let updated = replace_all(&original, &searches, &current, &next);
+        let updated = apply_rules(&original, &kinds, &current, &next)
+            .with_context(|| format!("Could not bump '{file}'"))?;
         changes.push(FileChange {
             path,
             file: file.to_owned(),
