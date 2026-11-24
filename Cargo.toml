@@ -1,6 +1,6 @@
 [package]
 name = "sco1-bumper"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
 rust-version = "1.85"
 description = "Automatically increment the project's version number."

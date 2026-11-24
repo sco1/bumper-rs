@@ -1,7 +1,11 @@
 [tool.bumper]
-current_version = "0.1.0"
+current_version = "1.0.0"
 versioning_type = "semver"
 
 [[tool.bumper.files]]
 file = "./Cargo.toml"
 key = "package.version"
+
+[[tool.bumper.files]]
+file = "./README.md"
+search = "--tag v{current_version}"

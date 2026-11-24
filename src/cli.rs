@@ -10,6 +10,7 @@ use crate::{
     name = "bumper",
     about = "Automatically increment the project's version number."
 )]
+#[command(version)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Command,
