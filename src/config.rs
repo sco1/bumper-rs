@@ -6,7 +6,7 @@ use serde::{Deserialize, Deserializer, de};
 
 use crate::version::parse_version;
 
-const BUMPER_CONFIG_FILE: &str = ".bumper.toml";
+pub(crate) const BUMPER_CONFIG_FILE: &str = ".bumper.toml";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]

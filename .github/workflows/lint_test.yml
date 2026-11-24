@@ -55,7 +55,7 @@ jobs:
       contents: read
     strategy:
       matrix:
-        toolchain: [stable, "1.85"]  # Keep MSRV in sync with Cargo.toml rust-version
+        toolchain: [stable, "1.85"]
       fail-fast: false
 
     steps:
