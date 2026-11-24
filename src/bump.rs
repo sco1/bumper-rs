@@ -147,7 +147,12 @@ pub fn apply(changes: &[FileChange], out: &mut impl Write) -> Result<()> {
 }
 
 pub fn preview(changes: &[FileChange], out: &mut impl Write) -> Result<()> {
-    for fc in changes {
+    for (index, fc) in changes.iter().enumerate() {
+        // Add a delimiter in between multi-file output
+        if index > 0 {
+            writeln!(out)?;
+        }
+
         if !fc.is_changed() {
             writeln!(out, "{} - No changes.", fc.file)?;
             continue;

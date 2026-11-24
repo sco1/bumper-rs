@@ -20,3 +20,6 @@ rustc-ice-*.txt
 /target
 
 .env
+
+.venv/
+.tools/

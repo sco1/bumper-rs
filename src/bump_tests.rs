@@ -563,6 +563,7 @@ fn preview_renders_diffs_and_does_not_modify_files() {
             "@@ -3 +3 @@\n",
             "-version = \"0.1.0\"\n",
             "+version = \"0.2.0\"\n",
+            "\n",
             "./README.md - No changes.\n",
         ),
     );

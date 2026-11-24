@@ -1,4 +1,6 @@
 # bumper-rs
+[![GitHub Release](https://img.shields.io/github/v/release/sco1/bumper-rs)](https://github.com/sco1/bumper-rs/releases)
+[![GitHub License](https://img.shields.io/github/license/sco1/bumper-rs)](https://github.com/sco1/bumper-rs/blob/main/LICENSE)
 Automatically increment the project's version number
 
 A Rust companion to my Python-based [`bumper`](https://github.com/sco1/bumper) utility.
@@ -12,14 +14,29 @@ A Rust companion to my Python-based [`bumper`](https://github.com/sco1/bumper) u
 ## Installation
 `bumper` requires a current Rust toolchain with Cargo.
 
-Install the latest version from the GitHub repository:
+Install the [latest version](https://github.com/sco1/bumper-rs/releases/latest) from the GitHub repository:
 
-```bash
-cargo install --git https://github.com/sco1/bumper-rs --tag v1.0.0 --locked
+```text
+$ cargo install --git https://github.com/sco1/bumper-rs --tag v1.0.0 --locked
 ```
 
 You can confirm proper installation via the `bumper` CLI:
 
+<!-- [[[cog
+import subprocess
+
+help_text = subprocess.run(
+    ["cargo", "run", "--quiet", "--bin", "bumper", "--", "--help"],
+    check=True,
+    capture_output=True,
+    text=True,
+).stdout
+
+cog.outl("```text")
+cog.outl("$ bumper --help")
+cog.out(help_text)
+cog.outl("```")
+]]] -->
 ```text
 $ bumper --help
 Automatically increment the project's version number.
@@ -32,8 +49,21 @@ Commands:
   help  Print this message or the help of the given subcommand(s)
 
 Options:
-  -h, --help  Print help
+  -h, --help     Print help
   -V, --version  Print version
+```
+<!-- [[[end]]] (sum: 9oj8I8I7x0) -->
+
+Project-local installations can be achieved using:
+
+```text
+$ cargo install --git https://github.com/sco1/bumper-rs --tag v1.0.0 --locked --root .tools/bumper
+```
+
+Which would then be invoked by:
+
+```text
+$ ./.tools/bumper/bin/bumper<.exe> <...>
 ```
 
 ## Configuration
@@ -102,6 +132,21 @@ search = 'current_version = "{current_version}"'
 ### `bumper bump`
 Bump your project's version number using your defined configuration.
 
+<!-- [[[cog
+import subprocess
+
+help_text = subprocess.run(
+    ["cargo", "run", "--quiet", "--bin", "bumper", "--", "bump", "--help"],
+    check=True,
+    capture_output=True,
+    text=True,
+).stdout
+
+cog.outl("```text")
+cog.outl("$ bumper bump --help")
+cog.out(help_text)
+cog.outl("```")
+]]] -->
 ```text
 $ bumper bump --help
 Bump the configured project version
@@ -116,12 +161,28 @@ Options:
       --no-check-lock  Do not check Cargo.lock after applying changes
   -h, --help           Print help
 ```
+<!-- [[[end]]] (sum: bNco2f5pn9) -->
 
 ### `bumper init`
 A small helper to initialize a starter `.bumper.toml` file with a default rule that updates `[package].version` in `Cargo.toml`.
 
 **NOTE:** Be sure to update the sample version with your current version number before bumping with bumper.
 
+<!-- [[[cog
+import subprocess
+
+help_text = subprocess.run(
+    ["cargo", "run", "--quiet", "--bin", "bumper", "--", "init", "--help"],
+    check=True,
+    capture_output=True,
+    text=True,
+).stdout
+
+cog.outl("```text")
+cog.outl("$ bumper init --help")
+cog.out(help_text)
+cog.outl("```")
+]]] -->
 ```text
 $ bumper init --help
 Generate a starter .bumper.toml configuration file
@@ -136,3 +197,4 @@ Options:
   -h, --help
           Print help
 ```
+<!-- [[[end]]] (sum: bI+3y0w0UY) -->

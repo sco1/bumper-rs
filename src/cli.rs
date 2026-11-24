@@ -8,6 +8,7 @@ use crate::{
 #[derive(Debug, Parser)]
 #[command(
     name = "bumper",
+    bin_name = "bumper",
     about = "Automatically increment the project's version number."
 )]
 #[command(version)]
