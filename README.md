@@ -13,7 +13,7 @@ A Rust companion to my Python-based [`bumper`](https://github.com/sco1/bumper) u
   * Assumes `<YYYY>.<MM>.<MICRO>`
 
 ## Installation
-`bumper` requires a current Rust toolchain with Cargo.
+`bumper` requires a Rust 1.85+ toolchain with Cargo.
 
 Install the [latest version](https://github.com/sco1/bumper-rs/releases/latest) from the GitHub repository:
 
@@ -78,9 +78,11 @@ $ ./.tools/bumper/bin/bumper<.exe> <...>
 #### `tool.bumper.files`
 * `file` - Path to target file, relative to the repository root
 
-Exactly one replacement type; must contain a `{current_version}` tag if you want something to happen:
-  * `search` - Replacement string to search for in the target file
-  * `key` - A dotted TOML key path, such as `package.version`
+Exactly one replacement type:
+  * `search` - Replacement string to search for in the target file; must contain a `{current_version}` tag if you want something to happen
+  * `key` - A dotted TOML key path, such as `package.version`, whose string value is replaced if it matches the current version
+    * Key paths are split on `.`, so quoted keys containing dots are not supported
+    * Only table keys can be traversed; values inside arrays or arrays of tables (e.g. `[[bin]]`) cannot be targeted
 
 **NOTE:** `key` rules are recommended for TOML files when possible because they update one specific value rather than every matching text fragment.
 

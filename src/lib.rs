@@ -1,31 +1,37 @@
 //! Automatically increment the project's version number.
 //!
-//! The binary (`bumper`) is a thin wrapper around this library.
-//!
-//! The library is organized as a small pipeline:
-//!
-//! 1. [`config`] loads the `[tool.bumper]` table from `.bumper.toml`.
-//! 2. [`version`] computes the next version from the current one, the configured
-//!    [`VersioningType`](config::VersioningType), and the requested
-//!    [`BumpType`](version::BumpType).
-//! 3. [`bump`] plans the per-file text replacements and then either applies them or previews them
-//!    as a diff.
-//!
-//! [`run`] ties these steps together for each [`cli::Command`].
-use std::{io::Write, path::Path};
+//! This crate is intended to be used via its `bumper` binary, which is a thin wrapper around
+//! [`cli_main`]. No library API is provided; all other items are internal and are not covered by
+//! semver guarantees.
 
-use anyhow::Result;
+// The library is organized as a small pipeline:
+//
+// 1. `config` loads the `[tool.bumper]` table from `.bumper.toml`.
+// 2. `version` computes the next version from the current one, the configured `VersioningType`, and
+//    the requested `BumpType`.
+// 3. `bump` plans the per-file text replacements and then either applies them or previews them as a
+//    diff.
+//
+// `run` ties these steps together for each `cli::Command`.
+use std::{
+    env,
+    io::{self, Write},
+    path::Path,
+    process::ExitCode,
+};
 
+use anyhow::{Context, Result};
+use clap::Parser;
+
+mod bump;
+mod cli;
+mod config;
 mod diff;
 mod lock;
-
-pub mod bump;
-pub mod cli;
-pub mod config;
-pub mod version;
+mod version;
 
 use bump::{apply, plan, preview};
-use cli::Command;
+use cli::{Cli, Command};
 use config::{BUMPER_CONFIG_FILE, BumpRule, RuleKind};
 use version::YearMonth;
 
@@ -35,7 +41,32 @@ use version::YearMonth;
 /// file is bumped alongside the project files.
 const CONFIG_VERSION_KEY: &str = "tool.bumper.current_version";
 
-/// Execute a parsed CLI [`Command`] against the project whsoe base directory is `root`.
+/// Run the `bumper` CLI using the process arguments and the current working directory as the
+/// project root.
+///
+/// Any error chain is printed to stderr and mapped to [`ExitCode::FAILURE`].
+pub fn cli_main() -> ExitCode {
+    match try_cli_main() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(err) => {
+            eprintln!("{err:#}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Fallible body of [`cli_main`], separated so errors can be propagated with `?`.
+fn try_cli_main() -> Result<()> {
+    let cli = Cli::parse();
+
+    let root = env::current_dir().context("Could not determine the current working directory")?;
+    let stdout = io::stdout();
+    let mut out = stdout.lock();
+
+    run(cli.command, &root, &mut out)
+}
+
+/// Execute a parsed CLI [`Command`] against the project whose base directory is `root`.
 ///
 /// User-facing progress messages are written to `out`.
 ///
@@ -44,7 +75,7 @@ const CONFIG_VERSION_KEY: &str = "tool.bumper.current_version";
 /// Returns an error if the subcommand fails, e.g. the configuration cannot be loaded or parsed, the
 /// requested bump is incompatible with the versioning scheme, or a target file cannot be read or
 /// written.
-pub fn run(command: Command, root: &Path, out: &mut impl Write) -> Result<()> {
+fn run(command: Command, root: &Path, out: &mut impl Write) -> Result<()> {
     match command {
         Command::Bump {
             bump,
