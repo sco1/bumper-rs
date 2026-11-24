@@ -5,6 +5,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
+use clap::ValueEnum;
 use semver::Version;
 use serde::{Deserialize, Deserializer, de};
 
@@ -12,7 +13,7 @@ use crate::version::{YearMonth, parse_version};
 
 pub(crate) const BUMPER_CONFIG_FILE: &str = ".bumper.toml";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum VersioningType {
     Semver,

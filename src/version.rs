@@ -1,10 +1,11 @@
 use anyhow::{Context, Result, bail, ensure};
+use clap::ValueEnum;
 use jiff::{Timestamp, tz::TimeZone};
 use semver::Version;
 
 use crate::config::VersioningType;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum BumpType {
     Major,
     Minor,
