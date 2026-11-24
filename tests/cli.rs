@@ -243,9 +243,7 @@ fn init_creates_a_usable_configuration_and_bump_can_use_it() {
         .args(["bump", "patch", "--no-check-lock"])
         .assert()
         .success()
-        .stdout(predicate::str::contains(
-            "Bumper bumping: v0.1.0 -> v0.1.1",
-        ));
+        .stdout(predicate::str::contains("Bumper bumping: v0.1.0 -> v0.1.1"));
 
     assert!(
         read(&repo, "Cargo.toml").contains(r#"version = "0.1.1""#),

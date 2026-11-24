@@ -143,22 +143,50 @@ key = "package.version"
     )
 }
 
-pub fn init(root: &Path, versioning_type: VersioningType, ignore_existing: bool, today: YearMonth) -> Result<()> {
+pub fn init(
+    root: &Path,
+    versioning_type: VersioningType,
+    ignore_existing: bool,
+    today: YearMonth,
+) -> Result<()> {
     let cfg_file = root.join(BUMPER_CONFIG_FILE);
     let contents = init_template(versioning_type, today);
 
     if ignore_existing {
-        fs::write(&cfg_file, contents).with_context(|| format!("Could not write configuration file '{}'", cfg_file.display()))?;
+        fs::write(&cfg_file, contents).with_context(|| {
+            format!(
+                "Could not write configuration file '{}'",
+                cfg_file.display()
+            )
+        })?;
         return Ok(());
     }
 
-    let mut file = match fs::OpenOptions::new().write(true).create_new(true).open(&cfg_file) {
+    let mut file = match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&cfg_file)
+    {
         Ok(file) => file,
-        Err(e) if e.kind() == ErrorKind::AlreadyExists => {bail!("Configuration file already exists: '{BUMPER_CONFIG_FILE}'")},
-        Err(e) => {return Err(e).with_context(|| format!("Could not write configuration file '{}'", cfg_file.display()));},
+        Err(e) if e.kind() == ErrorKind::AlreadyExists => {
+            bail!("Configuration file already exists: '{BUMPER_CONFIG_FILE}'")
+        }
+        Err(e) => {
+            return Err(e).with_context(|| {
+                format!(
+                    "Could not write configuration file '{}'",
+                    cfg_file.display()
+                )
+            });
+        }
     };
 
-    file.write_all(contents.as_bytes()).with_context(|| format!("Could not write configuration file '{}'", cfg_file.display()))?;
+    file.write_all(contents.as_bytes()).with_context(|| {
+        format!(
+            "Could not write configuration file '{}'",
+            cfg_file.display()
+        )
+    })?;
     Ok(())
 }
 

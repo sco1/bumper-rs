@@ -4,15 +4,7 @@ use anyhow::Result;
 use semver::Version;
 use tempfile::TempDir;
 
-use super::{
-    apply,
-    apply_rules,
-    group_rules,
-    plan,
-    preview,
-    replace_key,
-    replace_search,
-};
+use super::{apply, apply_rules, group_rules, plan, preview, replace_key, replace_search};
 use crate::config::{BumpRule, RuleKind};
 
 const SAMPLE_CARGO: &str = r#"[package]
@@ -82,12 +74,7 @@ fn read(root: &Path, name: &str) -> String {
 }
 
 /// Plan and preview the provided rules, returning the reported output.
-fn preview_bump(
-    root: &Path,
-    rules: &[BumpRule],
-    current: &str,
-    next: &str,
-) -> Result<String> {
+fn preview_bump(root: &Path, rules: &[BumpRule], current: &str, next: &str) -> Result<String> {
     let changes = plan(root, rules, &version(current), &version(next))?;
 
     let mut out = Vec::new();
@@ -552,8 +539,8 @@ fn preview_renders_diffs_and_does_not_modify_files() {
         search_rule("./README.md", "does-not-appear/{current_version}"),
     ];
 
-    let output = preview_bump(repo.path(), &rules, "0.1.0", "0.2.0")
-        .expect("preview should succeed");
+    let output =
+        preview_bump(repo.path(), &rules, "0.1.0", "0.2.0").expect("preview should succeed");
 
     assert_eq!(
         output,

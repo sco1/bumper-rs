@@ -4,14 +4,7 @@ use semver::Version;
 use tempfile::TempDir;
 
 use super::{
-    BUMPER_CONFIG_FILE,
-    BumpRule,
-    Config,
-    RuleKind,
-    VersioningType,
-    init,
-    init_template,
-    load,
+    BUMPER_CONFIG_FILE, BumpRule, Config, RuleKind, VersioningType, init, init_template, load,
 };
 use crate::version::YearMonth;
 
@@ -500,13 +493,8 @@ fn init_template_generates_the_expected_calver_configuration() {
 fn init_creates_a_semver_configuration_when_none_exists() {
     let temp_dir = TempDir::new().expect("could not create temporary directory");
 
-    init(
-        temp_dir.path(),
-        VersioningType::Semver,
-        false,
-        FIXED_TODAY,
-    )
-    .expect("init should create configuration");
+    init(temp_dir.path(), VersioningType::Semver, false, FIXED_TODAY)
+        .expect("init should create configuration");
 
     assert_eq!(read_config(temp_dir.path()), SEMVER_INIT_CONFIG);
 
@@ -525,13 +513,8 @@ fn init_preserves_an_existing_configuration_without_override() {
     let original = "[tool.bumper]\ncurrent_version = \"9.9.9\"\n";
     let temp_dir = temp_dir_with_config(original);
 
-    let err = init(
-        temp_dir.path(),
-        VersioningType::Semver,
-        false,
-        FIXED_TODAY,
-    )
-    .expect_err("init should reject an existing configuration");
+    let err = init(temp_dir.path(), VersioningType::Semver, false, FIXED_TODAY)
+        .expect_err("init should reject an existing configuration");
 
     assert_eq!(
         err.to_string(),
@@ -544,13 +527,8 @@ fn init_preserves_an_existing_configuration_without_override() {
 fn init_overwrites_an_existing_configuration_when_requested() {
     let temp_dir = temp_dir_with_config("existing configuration\n");
 
-    init(
-        temp_dir.path(),
-        VersioningType::Calver,
-        true,
-        FIXED_TODAY,
-    )
-    .expect("init should overwrite configuration when requested");
+    init(temp_dir.path(), VersioningType::Calver, true, FIXED_TODAY)
+        .expect("init should overwrite configuration when requested");
 
     assert_eq!(read_config(temp_dir.path()), CALVER_INIT_CONFIG);
 

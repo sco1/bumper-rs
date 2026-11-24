@@ -22,12 +22,25 @@ const CONFIG_VERSION_KEY: &str = "tool.bumper.current_version";
 
 pub fn run(command: Command, root: &Path, out: &mut impl Write) -> Result<()> {
     match command {
-        Command::Bump { bump, dry_run, check_lock } => run_bump(root, bump, dry_run, check_lock, out),
-        Command::Init { versioning_type, ignore_existing } => config::init(root, versioning_type, ignore_existing, YearMonth::now_utc()),
+        Command::Bump {
+            bump,
+            dry_run,
+            check_lock,
+        } => run_bump(root, bump, dry_run, check_lock, out),
+        Command::Init {
+            versioning_type,
+            ignore_existing,
+        } => config::init(root, versioning_type, ignore_existing, YearMonth::now_utc()),
     }
 }
 
-fn run_bump(root: &Path, bump_type: version::BumpType, dry_run: bool, check_lock: bool, out: &mut impl Write) -> Result<()> {
+fn run_bump(
+    root: &Path,
+    bump_type: version::BumpType,
+    dry_run: bool,
+    check_lock: bool,
+    out: &mut impl Write,
+) -> Result<()> {
     let config = config::load(root)?;
     let next = version::next_version(&config.current_version, config.versioning_type, bump_type)?;
 
@@ -39,14 +52,20 @@ fn run_bump(root: &Path, bump_type: version::BumpType, dry_run: bool, check_lock
 
     let changes = plan(root, &rules, &config.current_version, &next)?;
 
-    writeln!(out, "Bumper bumping: v{} -> v{}", config.current_version, next)?;
+    writeln!(
+        out,
+        "Bumper bumping: v{} -> v{}",
+        config.current_version, next
+    )?;
 
     if dry_run {
         preview(&changes, out)?;
     } else {
         apply(&changes, out)?;
 
-        if check_lock { lock::check(root, out)?; }
+        if check_lock {
+            lock::check(root, out)?;
+        }
     }
 
     Ok(())

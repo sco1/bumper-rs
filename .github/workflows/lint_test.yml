@@ -5,14 +5,16 @@ on:
   push:
     branches:
       - main
-    tags-ignore:
-      - "**"  # Skip re-linting when tags are added
 
 permissions: {}
 
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   fmt:
@@ -25,8 +27,7 @@ jobs:
       with:
         persist-credentials: false
 
-    # .rustfmt.toml uses unstable options (group_imports, imports_granularity), which are only
-    # honored by nightly rustfmt
+    # .rustfmt.toml uses unstable options (group_imports, imports_granularity)
     - name: Install nightly rustfmt
       run: rustup toolchain install nightly --profile minimal --component rustfmt
 
@@ -68,3 +69,31 @@ jobs:
 
     - name: Run tests
       run: cargo +${{ matrix.toolchain }} test --locked
+
+  cog-check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7.1.0
+        with:
+          python-version: "3.15"
+
+      - name: Install stable toolchain
+        run: rustup toolchain install stable --profile minimal
+
+      - name: Check generated README content
+        env:
+          RUSTUP_TOOLCHAIN: stable
+          PIP_DISABLE_PIP_VERSION_CHECK: "1"
+        run: |
+          python -m pip install cogapp
+          cog -rc README.md
+          git diff --check
+          git diff --exit-code -- README.md

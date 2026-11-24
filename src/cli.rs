@@ -1,9 +1,6 @@
 use clap::{ArgAction, Parser, Subcommand};
 
-use crate::{
-    config::VersioningType,
-    version::BumpType,
-};
+use crate::{config::VersioningType, version::BumpType};
 
 #[derive(Debug, Parser)]
 #[command(

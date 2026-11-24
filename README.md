@@ -1,6 +1,7 @@
 # bumper-rs
 [![GitHub Release](https://img.shields.io/github/v/release/sco1/bumper-rs)](https://github.com/sco1/bumper-rs/releases)
 [![GitHub License](https://img.shields.io/github/license/sco1/bumper-rs)](https://github.com/sco1/bumper-rs/blob/main/LICENSE)
+
 Automatically increment the project's version number
 
 A Rust companion to my Python-based [`bumper`](https://github.com/sco1/bumper) utility.
@@ -26,7 +27,7 @@ You can confirm proper installation via the `bumper` CLI:
 import subprocess
 
 help_text = subprocess.run(
-    ["cargo", "run", "--quiet", "--bin", "bumper", "--", "--help"],
+    ["cargo", "run", "--quiet", "--locked", "--bin", "bumper", "--", "--help"],
     check=True,
     capture_output=True,
     text=True,
@@ -136,7 +137,7 @@ Bump your project's version number using your defined configuration.
 import subprocess
 
 help_text = subprocess.run(
-    ["cargo", "run", "--quiet", "--bin", "bumper", "--", "bump", "--help"],
+    ["cargo", "run", "--quiet", "--locked", "--bin", "bumper", "--", "bump", "--help"],
     check=True,
     capture_output=True,
     text=True,
@@ -172,7 +173,7 @@ A small helper to initialize a starter `.bumper.toml` file with a default rule t
 import subprocess
 
 help_text = subprocess.run(
-    ["cargo", "run", "--quiet", "--bin", "bumper", "--", "init", "--help"],
+    ["cargo", "run", "--quiet", "--locked", "--bin", "bumper", "--", "init", "--help"],
     check=True,
     capture_output=True,
     text=True,

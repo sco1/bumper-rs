@@ -24,8 +24,7 @@ fn repo_with(files: &[(&str, &str)]) -> TempDir {
     let temp_dir = TempDir::new().expect("could not create temporary directory");
 
     for (name, contents) in files {
-        fs::write(temp_dir.path().join(name), contents)
-            .expect("could not write test file");
+        fs::write(temp_dir.path().join(name), contents).expect("could not write test file");
     }
 
     temp_dir
@@ -186,21 +185,16 @@ edition = "2024"
 "#;
     let lock = MATCHING_LOCK;
 
-    let repo = repo_with(&[
-        ("Cargo.toml", manifest),
-        ("Cargo.lock", lock),
-    ]);
+    let repo = repo_with(&[("Cargo.toml", manifest), ("Cargo.lock", lock)]);
 
     run_check(repo.path()).expect("check should succeed");
 
     assert_eq!(
-        fs::read_to_string(repo.path().join("Cargo.toml"))
-            .expect("could not read Cargo.toml"),
+        fs::read_to_string(repo.path().join("Cargo.toml")).expect("could not read Cargo.toml"),
         manifest,
     );
     assert_eq!(
-        fs::read_to_string(repo.path().join("Cargo.lock"))
-            .expect("could not read Cargo.lock"),
+        fs::read_to_string(repo.path().join("Cargo.lock")).expect("could not read Cargo.lock"),
         lock,
     );
 }

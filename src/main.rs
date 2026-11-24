@@ -2,7 +2,6 @@ use std::{env, io, process::ExitCode};
 
 use anyhow::{Context, Result};
 use clap::Parser;
-
 use sco1_bumper::{cli::Cli, run};
 
 fn main() -> ExitCode {
