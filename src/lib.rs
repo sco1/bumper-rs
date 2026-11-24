@@ -4,4 +4,5 @@
 pub mod bump;
 pub mod config;
 mod diff;
+mod lock;
 pub mod version;
