@@ -3,7 +3,17 @@ use std::fs;
 use semver::Version;
 use tempfile::TempDir;
 
-use super::{BUMPER_CONFIG_FILE, BumpRule, Config, RuleKind, VersioningType, load};
+use super::{
+    BUMPER_CONFIG_FILE,
+    BumpRule,
+    Config,
+    RuleKind,
+    VersioningType,
+    init,
+    init_template,
+    load,
+};
+use crate::version::YearMonth;
 
 fn search_rule(file: &str, search: &str) -> BumpRule {
     BumpRule {
@@ -47,6 +57,36 @@ fn assert_load_error_contains(contents: &str, needle: &str) {
         message.contains(needle),
         "expected {needle:?} in error; got: {message}"
     );
+}
+
+const FIXED_TODAY: YearMonth = YearMonth {
+    year: 2026,
+    month: 11,
+};
+
+const SEMVER_INIT_CONFIG: &str = concat!(
+    "[tool.bumper]\n",
+    "current_version = \"0.1.0\"\n",
+    "versioning_type = \"semver\"\n",
+    "\n",
+    "[[tool.bumper.files]]\n",
+    "file = \"./Cargo.toml\"\n",
+    "key = \"package.version\"\n",
+);
+
+const CALVER_INIT_CONFIG: &str = concat!(
+    "[tool.bumper]\n",
+    "current_version = \"2026.11.0\"\n",
+    "versioning_type = \"calver\"\n",
+    "\n",
+    "[[tool.bumper.files]]\n",
+    "file = \"./Cargo.toml\"\n",
+    "key = \"package.version\"\n",
+);
+
+fn read_config(root: &std::path::Path) -> String {
+    fs::read_to_string(root.join(BUMPER_CONFIG_FILE))
+        .expect("could not read generated configuration")
 }
 
 #[test]
@@ -439,5 +479,87 @@ current_version = "0.1.0"
         err.to_string()
             .contains("Could not parse configuration file '.bumper.toml'"),
         "error: {err}",
+    );
+}
+
+#[test]
+fn init_template_generates_the_expected_semver_configuration() {
+    let got = init_template(VersioningType::Semver, FIXED_TODAY);
+
+    assert_eq!(got, SEMVER_INIT_CONFIG);
+}
+
+#[test]
+fn init_template_generates_the_expected_calver_configuration() {
+    let got = init_template(VersioningType::Calver, FIXED_TODAY);
+
+    assert_eq!(got, CALVER_INIT_CONFIG);
+}
+
+#[test]
+fn init_creates_a_semver_configuration_when_none_exists() {
+    let temp_dir = TempDir::new().expect("could not create temporary directory");
+
+    init(
+        temp_dir.path(),
+        VersioningType::Semver,
+        false,
+        FIXED_TODAY,
+    )
+    .expect("init should create configuration");
+
+    assert_eq!(read_config(temp_dir.path()), SEMVER_INIT_CONFIG);
+
+    let config = load(temp_dir.path()).expect("generated configuration should load");
+
+    assert_eq!(config.current_version, Version::new(0, 1, 0));
+    assert_eq!(config.versioning_type, VersioningType::Semver);
+    assert_eq!(
+        config.files,
+        vec![key_rule("./Cargo.toml", "package.version")]
+    );
+}
+
+#[test]
+fn init_preserves_an_existing_configuration_without_override() {
+    let original = "[tool.bumper]\ncurrent_version = \"9.9.9\"\n";
+    let temp_dir = temp_dir_with_config(original);
+
+    let err = init(
+        temp_dir.path(),
+        VersioningType::Semver,
+        false,
+        FIXED_TODAY,
+    )
+    .expect_err("init should reject an existing configuration");
+
+    assert_eq!(
+        err.to_string(),
+        "Configuration file already exists: '.bumper.toml'"
+    );
+    assert_eq!(read_config(temp_dir.path()), original);
+}
+
+#[test]
+fn init_overwrites_an_existing_configuration_when_requested() {
+    let temp_dir = temp_dir_with_config("existing configuration\n");
+
+    init(
+        temp_dir.path(),
+        VersioningType::Calver,
+        true,
+        FIXED_TODAY,
+    )
+    .expect("init should overwrite configuration when requested");
+
+    assert_eq!(read_config(temp_dir.path()), CALVER_INIT_CONFIG);
+
+    let config = load(temp_dir.path()).expect("generated configuration should load");
+
+    assert_eq!(config.current_version, Version::new(2026, 11, 0));
+    assert_eq!(config.versioning_type, VersioningType::Calver);
+    assert_eq!(
+        config.files,
+        vec![key_rule("./Cargo.toml", "package.version")]
     );
 }

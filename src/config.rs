@@ -1,10 +1,14 @@
-use std::{fs, io::ErrorKind, path::Path};
+use std::{
+    fs,
+    io::{ErrorKind, Write},
+    path::Path,
+};
 
 use anyhow::{Context, Result, bail};
 use semver::Version;
 use serde::{Deserialize, Deserializer, de};
 
-use crate::version::parse_version;
+use crate::version::{YearMonth, parse_version};
 
 pub(crate) const BUMPER_CONFIG_FILE: &str = ".bumper.toml";
 
@@ -113,6 +117,48 @@ pub fn load(root: &Path) -> Result<Config> {
         .with_context(|| format!("Could not parse configuration file '{BUMPER_CONFIG_FILE}'"))?;
 
     Ok(parsed.tool.bumper)
+}
+
+fn init_template(versioning_type: VersioningType, today: YearMonth) -> String {
+    let current_version = match versioning_type {
+        VersioningType::Semver => "0.1.0".to_owned(),
+        VersioningType::Calver => format!("{}.{}.0", today.year, today.month),
+    };
+
+    let versioning_type = match versioning_type {
+        VersioningType::Semver => "semver",
+        VersioningType::Calver => "calver",
+    };
+
+    format!(
+        r#"[tool.bumper]
+current_version = "{current_version}"
+versioning_type = "{versioning_type}"
+
+[[tool.bumper.files]]
+file = "./Cargo.toml"
+key = "package.version"
+"#
+    )
+}
+
+pub fn init(root: &Path, versioning_type: VersioningType, ignore_existing: bool, today: YearMonth) -> Result<()> {
+    let cfg_file = root.join(BUMPER_CONFIG_FILE);
+    let contents = init_template(versioning_type, today);
+
+    if ignore_existing {
+        fs::write(&cfg_file, contents).with_context(|| format!("Could not write configuration file '{}'", cfg_file.display()))?;
+        return Ok(());
+    }
+
+    let mut file = match fs::OpenOptions::new().write(true).create_new(true).open(&cfg_file) {
+        Ok(file) => file,
+        Err(e) if e.kind() == ErrorKind::AlreadyExists => {bail!("Configuration file already exists: '{BUMPER_CONFIG_FILE}'")},
+        Err(e) => {return Err(e).with_context(|| format!("Could not write configuration file '{}'", cfg_file.display()));},
+    };
+
+    file.write_all(contents.as_bytes()).with_context(|| format!("Could not write configuration file '{}'", cfg_file.display()))?;
+    Ok(())
 }
 
 #[cfg(test)]
