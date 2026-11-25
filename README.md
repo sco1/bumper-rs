@@ -13,7 +13,7 @@ A Rust companion to my Python-based [`bumper`](https://github.com/sco1/bumper) u
   * Assumes `<YYYY>.<MM>.<MICRO>`
 
 ## Installation
-`bumper` requires a Rust 1.85+ toolchain with Cargo.
+`bumper` requires a Rust 1.95+ toolchain with Cargo.
 
 Install the [latest version](https://github.com/sco1/bumper-rs/releases/latest) from the GitHub repository:
 
