@@ -175,6 +175,48 @@ fn bump_calver_rejects_a_future_dated_version() {
 }
 
 #[test]
+fn bump_calver_rejects_versions_that_do_not_form_a_valid_date() {
+    let today = YearMonth {
+        year: 2026,
+        month: 11,
+    };
+    let cases = [
+        ("month above 12", "2025.13.0"),
+        ("month zero", "2026.0.4"),
+        ("month far out of range", "2025.300.1"),
+        ("year beyond 9999", "10000.1.0"),
+        ("year beyond i16", "70000.1.0"),
+        // Validity is checked before the future-date check, so the more specific error wins
+        ("invalid and future dated", "2099.13.0"),
+    ];
+
+    for (case, input) in cases {
+        let err = bump_calver(&version(input), today)
+            .expect_err("a version that is not a valid date should be rejected");
+        let message = err.to_string();
+
+        assert!(
+            message.contains(&format!("'{input}'")) && message.contains("does not form a valid"),
+            "case: {case}; error: {message}"
+        );
+    }
+}
+
+#[test]
+fn bump_calver_rolls_any_earlier_valid_date_over_to_the_current_month() {
+    // A non-CalVer version such as one seeded by `init` from Cargo.toml is still a valid (if
+    // ancient) date, so switching a project to CalVer keeps working
+    let today = YearMonth {
+        year: 2026,
+        month: 11,
+    };
+
+    let got = bump_calver(&version("1.2.3"), today).expect("CalVer bump should succeed");
+
+    assert_eq!(got, version("2026.11.0"));
+}
+
+#[test]
 fn next_version_rejects_invalid_versioning_and_bump_combinations() {
     let current = version("1.2.3");
 
@@ -184,7 +226,7 @@ fn next_version_rejects_invalid_versioning_and_bump_combinations() {
     assert!(
         semver_date_err
             .to_string()
-            .contains("must bump by major, minor, or patch"),
+            .contains("SemVer projects must bump by major, minor, or patch"),
         "error: {semver_date_err}",
     );
 
@@ -192,16 +234,18 @@ fn next_version_rejects_invalid_versioning_and_bump_combinations() {
         .expect_err("CalVer patch bump should be rejected");
 
     assert!(
-        calver_patch_err.to_string().contains("must bump by date"),
+        calver_patch_err
+            .to_string()
+            .contains("CalVer projects must bump by date"),
         "error: {calver_patch_err}",
     );
 }
 
 #[test]
 fn next_version_uses_the_current_utc_month_for_calver() {
-    // A real UTC month is always in 1..=12, so this cannot be interpreted
-    // as the same CalVer month as the current clock value.
-    let current = Version::new(0, 0, 0);
+    // A valid date that is always earlier than the clock, so the bump always rolls over to the
+    // current month
+    let current = Version::new(2000, 1, 0);
 
     let before = YearMonth::now_utc();
 

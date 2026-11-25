@@ -151,7 +151,8 @@ pub struct Config {
     pub current_version: Version,
     /// Versioning scheme used to compute the next version.
     pub versioning_type: VersioningType,
-    /// Replacement rules, in the order they appear in the configuration file.
+    /// Replacement rules, in the order they appear in the configuration file; empty if omitted.
+    #[serde(default)]
     pub files: Vec<BumpRule>,
 }
 

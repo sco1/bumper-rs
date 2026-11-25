@@ -4,7 +4,7 @@
 //! `<YYYY>.<MM>.<MICRO>` onto `major.minor.patch`.
 use anyhow::{Context, Result, bail, ensure};
 use clap::ValueEnum;
-use jiff::{Timestamp, tz::TimeZone};
+use jiff::{Timestamp, civil::Date, tz::TimeZone};
 use semver::Version;
 
 use crate::config::VersioningType;
@@ -69,6 +69,26 @@ pub fn parse_version(s: &str) -> Result<Version> {
     Ok(ver)
 }
 
+/// Return an error unless the year and month of a CalVer `version` form a valid calendar date.
+///
+/// The year must be at most 9999 and the month must be from 1 to 12. The micro component is not
+/// constrained.
+fn ensure_valid_calver(version: &Version) -> Result<()> {
+    let year = i16::try_from(version.major);
+    let month = i8::try_from(version.minor);
+    let is_valid = matches!(
+        (year, month),
+        (Ok(year), Ok(month)) if Date::new(year, month, 1).is_ok()
+    );
+
+    ensure!(
+        is_valid,
+        "Current CalVer version '{version}' does not form a valid <YYYY>.<MM>.<MICRO> date; \
+        the year must be at most 9999 and the month from 1 to 12."
+    );
+    Ok(())
+}
+
 /// Increment the requested SemVer component, resetting all lower components to zero.
 ///
 /// # Panics
@@ -90,9 +110,10 @@ fn bump_semver(current: &Version, bump: BumpType) -> Version {
 ///
 /// # Errors
 ///
-/// Returns an error if `current` is dated later than `today`, which usually indicates a
-/// misconfigured `current_version`.
+/// Returns an error if `current` does not form a valid date, or is dated later than `today`; either
+/// usually indicates a misconfigured `current_version`.
 fn bump_calver(current: &Version, today: YearMonth) -> Result<Version> {
+    ensure_valid_calver(current)?;
     if (current.major, current.minor) > (today.year, today.month) {
         bail!(
             "Current CalVer version '{current}' is later than the current UTC month '{}.{}'; \
@@ -120,8 +141,8 @@ fn bump_calver(current: &Version, today: YearMonth) -> Result<Version> {
 /// # Errors
 ///
 /// Returns an error if `bump` is incompatible with `versioning` (SemVer projects require `major`,
-/// `minor`, or `patch`; CalVer projects require `date`), or if a CalVer `current` version is dated
-/// in the future.
+/// `minor`, or `patch`; CalVer projects require `date`), or if a CalVer `current` version does not
+/// form a valid date or is dated in the future.
 pub fn next_version(
     current: &Version,
     versioning: VersioningType,
@@ -136,10 +157,10 @@ pub fn next_version(
             bump_calver(current, today)
         }
         (VersioningType::Semver, BumpType::Date) => {
-            bail!("Semver projects must bump by major, minor, or patch.");
+            bail!("SemVer projects must bump by major, minor, or patch.");
         }
         (VersioningType::Calver, _) => {
-            bail!("Calver projects must bump by date.");
+            bail!("CalVer projects must bump by date.");
         }
     }
 }

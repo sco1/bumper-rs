@@ -80,7 +80,7 @@ files = []
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "Calver projects must bump by date.",
+            "CalVer projects must bump by date.",
         ));
 }
 
@@ -116,6 +116,20 @@ fn bump_updates_targets_and_the_configuration_file() {
         read(&repo, ".bumper.toml").contains(r#"current_version = "0.2.0""#),
         ".bumper.toml was not updated"
     );
+}
+
+#[test]
+fn bump_without_files_bumps_only_the_configuration() {
+    let config = "[tool.bumper]\ncurrent_version = \"0.1.0\"\nversioning_type = \"semver\"\n";
+    let repo = repo_with(&[(".bumper.toml", config)]);
+
+    bumper_in(&repo)
+        .args(["bump", "patch", "--strict"])
+        .assert()
+        .success()
+        .stdout("Bumper bumping: v0.1.0 -> v0.1.1\nBumped .bumper.toml\n");
+
+    assert!(read(&repo, ".bumper.toml").contains(r#"current_version = "0.1.1""#));
 }
 
 #[test]

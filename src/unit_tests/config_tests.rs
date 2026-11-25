@@ -340,6 +340,21 @@ future_option = "ignored"
 }
 
 #[test]
+fn load_defaults_files_to_empty_when_omitted() {
+    let temp_dir = temp_dir_with_config(
+        r#"
+[tool.bumper]
+current_version = "0.1.0"
+versioning_type = "semver"
+"#,
+    );
+
+    let config = load(temp_dir.path()).expect("configuration without files should load");
+
+    assert!(config.files.is_empty());
+}
+
+#[test]
 fn load_rejects_missing_tables_and_fields() {
     let cases = [
         ("missing tool table", "", "missing field `tool`"),
@@ -368,15 +383,6 @@ current_version = "0.1.0"
 files = []
 "#,
             "missing field `versioning_type`",
-        ),
-        (
-            "missing files",
-            r#"
-[tool.bumper]
-current_version = "0.1.0"
-versioning_type = "semver"
-"#,
-            "missing field `files`",
         ),
         (
             "file rule missing file",

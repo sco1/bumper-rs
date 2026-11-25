@@ -2,7 +2,7 @@
 //!
 //! This crate is intended to be used via its `bumper` binary, which is a thin wrapper around
 //! [`cli_main`]. No library API is provided; all other items are internal and are not covered by
-//! semver guarantees.
+//! SemVer guarantees.
 
 // The library is organized as a small pipeline:
 //

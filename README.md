@@ -11,6 +11,7 @@ A Rust companion to my Python-based [`bumper`](https://github.com/sco1/bumper) u
   * Assumes `<MAJOR>.<MINOR>.<PATCH>`
 * [Calendar Versioning (CalVer)](https://calver.org/)
   * Assumes `<YYYY>.<MM>.<MICRO>`
+  * The year and month must form a valid date, and the month is not zero-padded (e.g. `2026.1.0`)
 
 ## Installation
 `bumper` requires a Rust 1.95+ toolchain with Cargo.
@@ -75,7 +76,11 @@ $ ./.tools/bumper/bin/bumper<.exe> <...>
 * `current_version` - The current software version; this is automatically incremented when bumping.
 * `versioning_type` - Versioning type to be used; accepted values are `"semver"` and `"calver"`
 
+### Optional Fields
 #### `tool.bumper.files`
+Replacement rules for the files to bump. `.bumper.toml` itself is always bumped, so if no rules are given only its `current_version` is updated.
+
+Each rule requires:
 * `file` - Path to target file, relative to the repository root
 
 Exactly one replacement type:
