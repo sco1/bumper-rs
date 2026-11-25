@@ -89,18 +89,30 @@ fn ensure_valid_calver(version: &Version) -> Result<()> {
     Ok(())
 }
 
+/// Return `component + 1`, or an error if that would overflow.
+fn increment(component: u64) -> Result<u64> {
+    component
+        .checked_add(1)
+        .context("Version component is already at its maximum value")
+}
+
 /// Increment the requested SemVer component, resetting all lower components to zero.
+///
+/// # Errors
+///
+/// Returns an error if the bumped component is already at its maximum value.
 ///
 /// # Panics
 ///
 /// Panics if called with [`BumpType::Date`]; callers must route CalVer bumps to [`bump_calver`].
-fn bump_semver(current: &Version, bump: BumpType) -> Version {
-    match bump {
-        BumpType::Major => Version::new(current.major + 1, 0, 0),
-        BumpType::Minor => Version::new(current.major, current.minor + 1, 0),
-        BumpType::Patch => Version::new(current.major, current.minor, current.patch + 1),
+fn bump_semver(current: &Version, bump: BumpType) -> Result<Version> {
+    let next = match bump {
+        BumpType::Major => Version::new(increment(current.major)?, 0, 0),
+        BumpType::Minor => Version::new(current.major, increment(current.minor)?, 0),
+        BumpType::Patch => Version::new(current.major, current.minor, increment(current.patch)?),
         BumpType::Date => unreachable!("bump_semver called with BumpType::Date"),
-    }
+    };
+    Ok(next)
 }
 
 /// Compute the next CalVer version relative to `today`.
@@ -111,7 +123,8 @@ fn bump_semver(current: &Version, bump: BumpType) -> Version {
 /// # Errors
 ///
 /// Returns an error if `current` does not form a valid date, or is dated later than `today`; either
-/// usually indicates a misconfigured `current_version`.
+/// usually indicates a misconfigured `current_version`. Also returns an error if `current` is in
+/// `today`'s month and its micro component is already at its maximum value.
 fn bump_calver(current: &Version, today: YearMonth) -> Result<Version> {
     ensure_valid_calver(current)?;
     if (current.major, current.minor) > (today.year, today.month) {
@@ -127,7 +140,7 @@ fn bump_calver(current: &Version, today: YearMonth) -> Result<Version> {
         Ok(Version::new(
             current.major,
             current.minor,
-            current.patch + 1,
+            increment(current.patch)?,
         ))
     } else {
         Ok(Version::new(today.year, today.month, 0))
@@ -141,8 +154,9 @@ fn bump_calver(current: &Version, today: YearMonth) -> Result<Version> {
 /// # Errors
 ///
 /// Returns an error if `bump` is incompatible with `versioning` (SemVer projects require `major`,
-/// `minor`, or `patch`; CalVer projects require `date`), or if a CalVer `current` version does not
-/// form a valid date or is dated in the future.
+/// `minor`, or `patch`; CalVer projects require `date`), if a CalVer `current` version does not
+/// form a valid date or is dated in the future, or if the bumped component is already at its
+/// maximum value.
 pub fn next_version(
     current: &Version,
     versioning: VersioningType,
@@ -150,7 +164,7 @@ pub fn next_version(
 ) -> Result<Version> {
     match (versioning, bump) {
         (VersioningType::Semver, BumpType::Major | BumpType::Minor | BumpType::Patch) => {
-            Ok(bump_semver(current, bump))
+            bump_semver(current, bump)
         }
         (VersioningType::Calver, BumpType::Date) => {
             let today = YearMonth::now_utc();

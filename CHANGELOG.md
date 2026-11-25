@@ -14,6 +14,7 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (`<ma
 
 ### Fixed
 * CalVer bumps now reject a `current_version` whose year and month do not form a valid date (e.g. `2026.13.0`)
+* Bumping a version component that is already at its maximum value now fails instead of panicking or wrapping around to `0`
 
 ## v1.0.0
 Initial release

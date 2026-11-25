@@ -85,6 +85,27 @@ files = []
 }
 
 #[test]
+fn bump_fails_without_writing_when_a_component_overflows() {
+    // u64::MAX parses as a valid version, so the failure happens when bumping rather than loading
+    let config = r#"[tool.bumper]
+current_version = "18446744073709551615.0.0"
+versioning_type = "semver"
+"#;
+    let repo = repo_with(&[(".bumper.toml", config)]);
+
+    bumper_in(&repo)
+        .args(["bump", "major"])
+        .assert()
+        .failure()
+        .stdout(predicate::str::is_empty())
+        .stderr(predicate::str::contains(
+            "Version component is already at its maximum value",
+        ));
+
+    assert_eq!(read(&repo, ".bumper.toml"), config);
+}
+
+#[test]
 fn bump_updates_targets_and_the_configuration_file() {
     let repo = repo_with(&[
         (".bumper.toml", SEMVER_CONFIG),

@@ -7,6 +7,8 @@ fn version(input: &str) -> Version {
     Version::parse(input).expect("test version should be valid SemVer")
 }
 
+const OVERFLOW_ERROR: &str = "Version component is already at its maximum value";
+
 #[test]
 fn parse_version_accepts_valid_release_versions() {
     let cases = ["0.1.0", "2025.1.0"];
@@ -69,6 +71,49 @@ fn next_version_bumps_semver_versions() {
             .expect("SemVer bump should succeed");
 
         assert_eq!(got, version(expected), "case: {input} {bump:?}",);
+    }
+}
+
+#[test]
+fn next_version_rejects_bumping_a_semver_component_at_its_maximum() {
+    let cases = [
+        (Version::new(u64::MAX, 0, 0), BumpType::Major),
+        (Version::new(0, u64::MAX, 0), BumpType::Minor),
+        (Version::new(0, 0, u64::MAX), BumpType::Patch),
+    ];
+
+    for (current, bump) in cases {
+        let err = next_version(&current, VersioningType::Semver, bump)
+            .expect_err("overflowing bump should be rejected");
+
+        assert!(
+            err.to_string().contains(OVERFLOW_ERROR),
+            "case: {current} {bump:?}; error: {err}"
+        );
+    }
+}
+
+#[test]
+fn next_version_resets_lower_semver_components_at_their_maximum() {
+    // Lower components are reset rather than incremented, so being at the maximum is not an error
+    let cases = [
+        (
+            Version::new(1, u64::MAX, u64::MAX),
+            BumpType::Major,
+            Version::new(2, 0, 0),
+        ),
+        (
+            Version::new(1, 1, u64::MAX),
+            BumpType::Minor,
+            Version::new(1, 2, 0),
+        ),
+    ];
+
+    for (current, bump, expected) in cases {
+        let got = next_version(&current, VersioningType::Semver, bump)
+            .expect("SemVer bump should succeed");
+
+        assert_eq!(got, expected, "case: {current} {bump:?}");
     }
 }
 
@@ -172,6 +217,33 @@ fn bump_calver_rejects_a_future_dated_version() {
         "error: {err}",
     );
     assert!(err.to_string().contains("review"), "error: {err}",);
+}
+
+#[test]
+fn bump_calver_rejects_a_micro_at_its_maximum_in_the_current_month() {
+    let today = YearMonth {
+        year: 2026,
+        month: 11,
+    };
+
+    let err = bump_calver(&Version::new(2026, 11, u64::MAX), today)
+        .expect_err("overflowing micro bump should be rejected");
+
+    assert!(err.to_string().contains(OVERFLOW_ERROR), "error: {err}");
+}
+
+#[test]
+fn bump_calver_rolls_over_a_micro_at_its_maximum_from_an_earlier_month() {
+    // Rolling over resets the micro component rather than incrementing it
+    let today = YearMonth {
+        year: 2026,
+        month: 11,
+    };
+
+    let got =
+        bump_calver(&Version::new(2026, 10, u64::MAX), today).expect("CalVer bump should succeed");
+
+    assert_eq!(got, Version::new(2026, 11, 0));
 }
 
 #[test]

@@ -91,6 +91,8 @@ Exactly one replacement type:
 
 **NOTE:** `key` rules are recommended for TOML files when possible because they update one specific value rather than every matching text fragment.
 
+**NOTE:** `search` patterns are matched as plain text anywhere in the file, including inside longer strings. This is what allows a rule to target a version inside a larger string, such as a URL, but it also means a pattern that starts or ends with `{current_version}` can match a longer version containing the current one. For example, with `current_version = "1.0.1"`, the pattern `v{current_version}` also matches `v1.0.10` and `v1.0.1-rc.1`. Where possible, include surrounding text on both sides of the token (e.g. `"--tag v{current_version} "`), prefer `key` rules for TOML files, and review `bump --dry-run` output after changing a pattern.
+
 ### Example Configuration
 The basic configuration looks something like the following:
 
