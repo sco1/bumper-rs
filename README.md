@@ -161,10 +161,26 @@ Arguments:
 
 Options:
       --dry-run        Preview the planned changes without modifying files
+      --strict         Fail without modifying files if any rule matches nothing
       --no-check-lock  Do not check Cargo.lock after applying changes
   -h, --help           Print help
 ```
-<!-- [[[end]]] (sum: bNco2f5pn9) -->
+<!-- [[[end]]] (sum: QQgLCkaWG0) -->
+
+#### Unmatched Rules
+A rule that matches nothing in its target file is reported with a warning that gives the reason, but the bump proceeds:
+
+```text
+$ bumper bump patch
+Bumper bumping: v1.2.2 -> v1.2.3
+WARNING: ./Cargo.toml: key 'package.version' has value '1.0.0', not the current version
+./Cargo.toml - No changes.
+Bumped .bumper.toml
+```
+
+This usually means `current_version` has drifted from a target file, or a `search` pattern no longer matches the file's text. Rules for the same file are applied in configuration order, so a rule may also find nothing because an earlier rule already replaced its match.
+
+Use `--strict` to treat unmatched rules as an error instead: `bumper` lists every unmatched rule and exits without modifying any files. This also applies to `--dry-run`.
 
 ### `bumper init`
 A small helper to initialize a starter `.bumper.toml` file with a default rule that updates `[package].version` in `Cargo.toml`.

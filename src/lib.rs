@@ -20,7 +20,7 @@ use std::{
     process::ExitCode,
 };
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::Parser;
 
 mod bump;
@@ -30,7 +30,7 @@ mod diff;
 mod lock;
 mod version;
 
-use bump::{apply, plan, preview};
+use bump::{FileChange, apply, plan, preview};
 use cli::{Cli, Command};
 use config::{BUMPER_CONFIG_FILE, BumpRule, RuleKind};
 use version::YearMonth;
@@ -80,8 +80,9 @@ fn run(command: Command, root: &Path, out: &mut impl Write) -> Result<()> {
         Command::Bump {
             bump,
             dry_run,
+            strict,
             check_lock,
-        } => run_bump(root, bump, dry_run, check_lock, out),
+        } => run_bump(root, bump, dry_run, strict, check_lock, out),
         Command::Init {
             versioning_type,
             ignore_existing,
@@ -95,6 +96,9 @@ fn run(command: Command, root: &Path, out: &mut impl Write) -> Result<()> {
 /// rule plus the `.bumper.toml` version itself. All files are read and planned before any are
 /// written, so a planning failure leaves the working tree untouched.
 ///
+/// Rules that match nothing are reported as warnings. With `strict`, they are an error instead,
+/// raised before anything is previewed or written.
+///
 /// With `dry_run`, the planned changes are previewed as a diff and nothing is written. Otherwise
 /// the changes are applied and, if `check_lock` is set, `Cargo.lock` is checked against the bumped
 /// `Cargo.toml` version.
@@ -102,6 +106,7 @@ fn run_bump(
     root: &Path,
     bump_type: version::BumpType,
     dry_run: bool,
+    strict: bool,
     check_lock: bool,
     out: &mut impl Write,
 ) -> Result<()> {
@@ -115,12 +120,24 @@ fn run_bump(
     });
 
     let changes = plan(root, &rules, &config.current_version, &next)?;
+    let misses: Vec<String> = changes.iter().flat_map(FileChange::misses).collect();
+
+    if strict && !misses.is_empty() {
+        bail!(
+            "{} rule(s) matched nothing; no files were changed:\n  {}",
+            misses.len(),
+            misses.join("\n  ")
+        );
+    }
 
     writeln!(
         out,
         "Bumper bumping: v{} -> v{}",
         config.current_version, next
     )?;
+    for miss in &misses {
+        writeln!(out, "WARNING: {miss}")?;
+    }
 
     if dry_run {
         preview(&changes, out)?;

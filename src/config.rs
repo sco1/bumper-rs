@@ -3,7 +3,7 @@
 //! The configuration lives under a `[tool.bumper]` table, with one `[[tool.bumper.files]]` entry
 //! per replacement rule. See the README for the full format.
 use std::{
-    fs,
+    fmt, fs,
     io::{ErrorKind, Write},
     path::Path,
 };
@@ -45,6 +45,13 @@ impl SearchPattern {
     }
 }
 
+/// Display the pattern as written in the configuration, with its token unrendered.
+impl fmt::Display for SearchPattern {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
 impl TryFrom<String> for SearchPattern {
     type Error = String;
 
@@ -78,6 +85,16 @@ pub enum RuleKind {
     Key(String),
 }
 
+/// Describe the rule as it would be written in the configuration, e.g. `key 'package.version'`.
+impl fmt::Display for RuleKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RuleKind::Search(search) => write!(f, "search '{search}'"),
+            RuleKind::Key(key) => write!(f, "key '{key}'"),
+        }
+    }
+}
+
 /// Raw `[[tool.bumper.files]]` entry, validated into a [`BumpRule`] on deserialization.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -97,7 +114,8 @@ pub struct BumpRule {
     pub kind: RuleKind,
 }
 
-/// Require exactly one of `search` or `key` to be set.
+/// Require exactly one of `search` or `key` to be set, and a `search` to be a valid
+/// [`SearchPattern`].
 impl TryFrom<RawBumpRule> for BumpRule {
     type Error = String; // anything that implements Display
 

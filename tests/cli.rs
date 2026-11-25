@@ -226,6 +226,111 @@ key = "package.version"
     assert_eq!(read(&repo, "Cargo.lock"), LOCK_0_1_0);
 }
 
+/// Configuration whose `Cargo.toml` key rule will not match [`CARGO_0_1_0`].
+const OUT_OF_SYNC_CONFIG: &str = r#"[tool.bumper]
+current_version = "0.0.9"
+versioning_type = "semver"
+
+[[tool.bumper.files]]
+file = "./Cargo.toml"
+key = "package.version"
+"#;
+
+const OUT_OF_SYNC_WARNING: &str =
+    "./Cargo.toml: key 'package.version' has value '0.1.0', not the current version";
+
+#[test]
+fn bump_warns_about_unmatched_rules_and_still_bumps() {
+    let repo = repo_with(&[
+        (".bumper.toml", OUT_OF_SYNC_CONFIG),
+        ("Cargo.toml", CARGO_0_1_0),
+    ]);
+
+    bumper_in(&repo)
+        .args(["bump", "patch", "--no-check-lock"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains(format!("WARNING: {OUT_OF_SYNC_WARNING}\n"))
+                .and(predicate::str::contains("./Cargo.toml - No changes.\n"))
+                .and(predicate::str::contains("Bumped .bumper.toml\n")),
+        );
+
+    assert_eq!(read(&repo, "Cargo.toml"), CARGO_0_1_0);
+    assert!(
+        read(&repo, ".bumper.toml").contains(r#"current_version = "0.0.10""#),
+        ".bumper.toml should still be bumped without --strict"
+    );
+}
+
+#[test]
+fn dry_run_warns_about_unmatched_rules() {
+    let repo = repo_with(&[
+        (".bumper.toml", OUT_OF_SYNC_CONFIG),
+        ("Cargo.toml", CARGO_0_1_0),
+    ]);
+
+    bumper_in(&repo)
+        .args(["bump", "patch", "--dry-run"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(format!(
+            "WARNING: {OUT_OF_SYNC_WARNING}\n"
+        )));
+
+    assert_eq!(read(&repo, ".bumper.toml"), OUT_OF_SYNC_CONFIG);
+}
+
+#[test]
+fn strict_fails_on_unmatched_rules_without_writing_anything() {
+    for args in [
+        &["bump", "patch", "--strict"][..],
+        &["bump", "patch", "--strict", "--dry-run"][..],
+    ] {
+        let repo = repo_with(&[
+            (".bumper.toml", OUT_OF_SYNC_CONFIG),
+            ("Cargo.toml", CARGO_0_1_0),
+        ]);
+
+        bumper_in(&repo)
+            .args(args)
+            .assert()
+            .failure()
+            .stdout(predicate::str::is_empty())
+            .stderr(
+                predicate::str::contains("1 rule(s) matched nothing; no files were changed:")
+                    .and(predicate::str::contains(format!("  {OUT_OF_SYNC_WARNING}"))),
+            );
+
+        assert_eq!(read(&repo, "Cargo.toml"), CARGO_0_1_0, "args: {args:?}");
+        assert_eq!(
+            read(&repo, ".bumper.toml"),
+            OUT_OF_SYNC_CONFIG,
+            "args: {args:?}"
+        );
+    }
+}
+
+#[test]
+fn strict_bumps_when_every_rule_matches() {
+    let repo = repo_with(&[
+        (".bumper.toml", SEMVER_CONFIG),
+        ("Cargo.toml", CARGO_0_1_0),
+        ("README.md", "# Example\n\nCurrent release v0.1.0\n"),
+    ]);
+
+    bumper_in(&repo)
+        .args(["bump", "patch", "--strict", "--no-check-lock"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("WARNING").not());
+
+    assert!(
+        read(&repo, "Cargo.toml").contains(r#"version = "0.1.1""#),
+        "Cargo.toml was not updated"
+    );
+}
+
 #[test]
 fn init_creates_a_usable_configuration_and_bump_can_use_it() {
     let repo = repo_with(&[("Cargo.toml", CARGO_0_1_0)]);

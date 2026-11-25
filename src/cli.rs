@@ -26,6 +26,10 @@ pub enum Command {
         #[arg(long)]
         dry_run: bool,
 
+        /// Fail without modifying files if any rule matches nothing.
+        #[arg(long)]
+        strict: bool,
+
         /// Do not check Cargo.lock after applying changes.
         #[arg(long = "no-check-lock", action = ArgAction::SetFalse)]
         check_lock: bool,

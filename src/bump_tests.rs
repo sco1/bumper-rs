@@ -4,7 +4,9 @@ use anyhow::Result;
 use semver::Version;
 use tempfile::TempDir;
 
-use super::{apply, apply_rules, group_rules, plan, preview, replace_key, replace_search};
+use super::{
+    RuleOutcome, apply, apply_rules, group_rules, plan, preview, replace_key, replace_search,
+};
 use crate::config::{BumpRule, RuleKind, SearchPattern};
 
 const SAMPLE_CARGO: &str = r#"[package]
@@ -124,31 +126,36 @@ fn replace_search_substitutes_the_version_template() {
             "version = \"0.1.0\"\n",
             r#"version = "{current_version}""#,
             "version = \"0.2.0\"\n",
+            RuleOutcome::Replaced,
         ),
         (
             "every occurrence",
             "v0.1.0 and v0.1.0",
             "v{current_version}",
             "v0.2.0 and v0.2.0",
+            RuleOutcome::Replaced,
         ),
         (
             "surrounding text limits the match",
             "version = \"0.1.0\"\nother = \"0.1.0\"\n",
             r#"version = "{current_version}""#,
             "version = \"0.2.0\"\nother = \"0.1.0\"\n",
+            RuleOutcome::Replaced,
         ),
         (
             "no match changes nothing",
             "nothing to see here\n",
             "v{current_version}",
             "nothing to see here\n",
+            RuleOutcome::PatternNotFound,
         ),
     ];
 
-    for (case, content, search, expected) in cases {
-        let got = replace_search(content, &pattern(search), "0.1.0", "0.2.0");
+    for (case, content, search, expected, expected_outcome) in cases {
+        let (got, outcome) = replace_search(content, &pattern(search), "0.1.0", "0.2.0");
 
         assert_eq!(got, expected, "case: {case}");
+        assert_eq!(outcome, expected_outcome, "case: {case}");
     }
 }
 
@@ -201,10 +208,11 @@ fn replace_key_updates_only_the_targeted_value() {
     ];
 
     for (case, content, key, expected) in cases {
-        let got =
+        let (got, outcome) =
             replace_key(content, key, "0.1.0", "0.2.0").expect("key replacement should succeed");
 
         assert_eq!(got, expected, "case: {case}");
+        assert_eq!(outcome, RuleOutcome::Replaced, "case: {case}");
     }
 }
 
@@ -212,24 +220,39 @@ fn replace_key_updates_only_the_targeted_value() {
 fn replace_key_leaves_content_unchanged_when_nothing_matches() {
     let content = "[package]\nversion = \"0.1.0\"\n";
     let cases = [
-        ("missing key", "package.nope", "0.1.0"),
-        ("missing table", "workspace.package.version", "0.1.0"),
+        (
+            "missing key",
+            "package.nope",
+            "0.1.0",
+            RuleOutcome::KeyNotFound,
+        ),
+        (
+            "missing table",
+            "workspace.package.version",
+            "0.1.0",
+            RuleOutcome::KeyNotFound,
+        ),
         (
             "path continues past a value",
             "package.version.extra",
             "0.1.0",
+            RuleOutcome::KeyNotFound,
         ),
         (
             "value differs from the current version",
             "package.version",
             "0.3.0",
+            RuleOutcome::KeyMismatch {
+                found: "0.1.0".to_owned(),
+            },
         ),
     ];
 
-    for (case, key, current) in cases {
-        let got = replace_key(content, key, current, "1.0.0").expect("should not error");
+    for (case, key, current, expected_outcome) in cases {
+        let (got, outcome) = replace_key(content, key, current, "1.0.0").expect("should not error");
 
         assert_eq!(got, content, "case: {case}");
+        assert_eq!(outcome, expected_outcome, "case: {case}");
     }
 }
 
@@ -270,9 +293,40 @@ fn apply_rules_applies_mixed_rules_cumulatively_in_order() {
     let key = RuleKind::Key("package.version".to_owned());
     let search = RuleKind::Search(pattern("pkg/{current_version}"));
 
-    let got = apply_rules(content, &[&key, &search], "0.1.0", "0.2.0").expect("rules should apply");
+    let (got, outcomes) =
+        apply_rules(content, &[&key, &search], "0.1.0", "0.2.0").expect("rules should apply");
 
     assert_eq!(got, "[package]\nversion = \"0.2.0\"\n# pkg/0.2.0\n");
+    assert_eq!(outcomes, [RuleOutcome::Replaced, RuleOutcome::Replaced]);
+}
+
+#[test]
+fn apply_rules_reports_an_outcome_for_every_rule_in_order() {
+    let content = "[package]\nversion = \"0.1.0\"\n";
+    let bump_key = RuleKind::Key("package.version".to_owned());
+    let absent_search = RuleKind::Search(pattern("pkg/{current_version}"));
+    let absent_key = RuleKind::Key("package.name".to_owned());
+    // Rules run against the output of earlier rules, so this text was already bumped by `bump_key`
+    let consumed_search = RuleKind::Search(pattern(r#"version = "{current_version}""#));
+
+    let (got, outcomes) = apply_rules(
+        content,
+        &[&bump_key, &absent_search, &absent_key, &consumed_search],
+        "0.1.0",
+        "0.2.0",
+    )
+    .expect("rules should apply");
+
+    assert_eq!(got, "[package]\nversion = \"0.2.0\"\n");
+    assert_eq!(
+        outcomes,
+        [
+            RuleOutcome::Replaced,
+            RuleOutcome::PatternNotFound,
+            RuleOutcome::KeyNotFound,
+            RuleOutcome::PatternNotFound,
+        ]
+    );
 }
 
 #[test]
@@ -302,6 +356,53 @@ fn plan_does_not_modify_files() {
     assert_eq!(changes.len(), 1);
     assert!(changes[0].is_changed());
     assert_eq!(read(repo.path(), "Cargo.toml"), SAMPLE_CARGO);
+}
+
+#[test]
+fn misses_describes_each_unmatched_rule_in_configuration_order() {
+    let repo = repo_with(&[
+        ("Cargo.toml", SAMPLE_CARGO.as_bytes()),
+        ("other.toml", b"[package]\nversion = \"9.9.9\"\n"),
+        ("README.md", SAMPLE_README.as_bytes()),
+    ]);
+    let rules = [
+        key_rule("./Cargo.toml", "package.version"),
+        key_rule("./Cargo.toml", "package.missing"),
+        key_rule("other.toml", "package.version"),
+        search_rule("README.md", "no-such-text/{current_version}"),
+        search_rule("README.md", "rev: v{current_version}"),
+    ];
+
+    let changes = plan(repo.path(), &rules, &version("0.1.0"), &version("0.2.0"))
+        .expect("plan should succeed");
+    let misses: Vec<String> = changes.iter().flat_map(|fc| fc.misses()).collect();
+
+    assert_eq!(
+        misses,
+        [
+            "./Cargo.toml: key 'package.missing' not found",
+            "other.toml: key 'package.version' has value '9.9.9', not the current version",
+            "README.md: search 'no-such-text/{current_version}' not found",
+        ]
+    );
+}
+
+#[test]
+fn misses_is_empty_when_every_rule_matches() {
+    let repo = repo_with(&[
+        ("Cargo.toml", SAMPLE_CARGO.as_bytes()),
+        ("README.md", SAMPLE_README.as_bytes()),
+    ]);
+    let rules = [
+        key_rule("Cargo.toml", "package.version"),
+        search_rule("README.md", "sco1-bumper/{current_version}"),
+        search_rule("README.md", "rev: v{current_version}"),
+    ];
+
+    let changes = plan(repo.path(), &rules, &version("0.1.0"), &version("0.2.0"))
+        .expect("plan should succeed");
+
+    assert_eq!(changes.iter().flat_map(|fc| fc.misses()).count(), 0);
 }
 
 #[test]
