@@ -9,7 +9,7 @@ use anyhow::{Context, Result, bail};
 use semver::Version;
 
 use crate::{
-    cargo::PACKAGE_VERSION_KEY,
+    cargo::{CARGO_MANIFEST_FILE, PACKAGE_VERSION_KEY},
     config::{BUMPER_CONFIG_FILE, VersioningType},
     version::YearMonth,
 };
@@ -49,18 +49,13 @@ fn render(versioning_type: VersioningType, start: &Start) -> String {
     let current_version = &start.current_version;
     let key = start.key;
 
-    let versioning_type = match versioning_type {
-        VersioningType::Semver => "semver",
-        VersioningType::Calver => "calver",
-    };
-
     format!(
         r#"[tool.bumper]
 current_version = "{current_version}"
 versioning_type = "{versioning_type}"
 
 [[tool.bumper.files]]
-file = "./Cargo.toml"
+file = "./{CARGO_MANIFEST_FILE}"
 key = "{key}"
 "#
     )
@@ -84,41 +79,31 @@ pub fn create(
     let cfg_file = root.join(BUMPER_CONFIG_FILE);
     let contents = render(versioning_type, start);
 
+    // Only an explicit request may replace an existing configuration file
+    let mut options = fs::OpenOptions::new();
+    options.write(true);
     if ignore_existing {
-        fs::write(&cfg_file, contents).with_context(|| {
-            format!(
-                "Could not write configuration file '{}'",
-                cfg_file.display()
-            )
-        })?;
-        return Ok(());
+        options.create(true).truncate(true);
+    } else {
+        options.create_new(true);
     }
 
-    let mut file = match fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&cfg_file)
-    {
-        Ok(file) => file,
-        Err(e) if e.kind() == ErrorKind::AlreadyExists => {
-            bail!("Configuration file already exists: '{BUMPER_CONFIG_FILE}'")
-        }
-        Err(e) => {
-            return Err(e).with_context(|| {
-                format!(
-                    "Could not write configuration file '{}'",
-                    cfg_file.display()
-                )
-            });
-        }
-    };
-
-    file.write_all(contents.as_bytes()).with_context(|| {
+    let write_error = || {
         format!(
             "Could not write configuration file '{}'",
             cfg_file.display()
         )
-    })?;
+    };
+    let mut file = match options.open(&cfg_file) {
+        Ok(file) => file,
+        Err(e) if e.kind() == ErrorKind::AlreadyExists => {
+            bail!("Configuration file already exists: '{BUMPER_CONFIG_FILE}'")
+        }
+        Err(e) => return Err(e).with_context(write_error),
+    };
+
+    file.write_all(contents.as_bytes())
+        .with_context(write_error)?;
     Ok(())
 }
 

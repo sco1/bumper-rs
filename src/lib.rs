@@ -17,6 +17,9 @@
 // `run` dispatches each `cli::Command`: the `bump` subcommand runs the steps above, while the
 // `init` subcommand uses `cargo` to find the version declared in `Cargo.toml` and `init` to write a
 // starter `.bumper.toml` from it.
+//
+// `config`, `cargo`, and `lock` read files that may be absent through the shared helpers in
+// `files`.
 use std::{
     env,
     io::{self, Write},
@@ -32,6 +35,7 @@ mod cargo;
 mod cli;
 mod config;
 mod diff;
+mod files;
 mod init;
 mod lock;
 mod version;
@@ -39,14 +43,8 @@ mod version;
 use bump::{FileChange, apply, plan, preview};
 use cargo::CARGO_MANIFEST_FILE;
 use cli::{Cli, Command};
-use config::{BUMPER_CONFIG_FILE, BumpRule, RuleKind, VersioningType};
+use config::{BUMPER_CONFIG_FILE, VersioningType};
 use version::{YearMonth, parse_version};
-
-/// Dotted TOML key of the version field inside `.bumper.toml` itself.
-///
-/// A rule targeting this key is always appended to the configured rules so that the configuration
-/// file is bumped alongside the project files.
-const CONFIG_VERSION_KEY: &str = "tool.bumper.current_version";
 
 /// Run the `bumper` CLI using the process arguments and the current working directory as the
 /// project root.
@@ -121,10 +119,7 @@ fn run_bump(
     let next = version::next_version(&config.current_version, config.versioning_type, bump_type)?;
 
     let mut rules = config.files.clone();
-    rules.push(BumpRule {
-        file: BUMPER_CONFIG_FILE.to_owned(),
-        kind: RuleKind::Key(CONFIG_VERSION_KEY.to_owned()),
-    });
+    rules.push(config::self_rule());
 
     let changes = plan(root, &rules, &config.current_version, &next)?;
     let misses: Vec<String> = changes.iter().flat_map(FileChange::misses).collect();

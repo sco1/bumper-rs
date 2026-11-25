@@ -4,10 +4,13 @@
 //! module only detects that situation and prints a note; it never modifies either file.
 use std::{io::Write, path::Path};
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Result, anyhow, bail};
 use toml::Value;
 
-use crate::cargo::{load_manifest, read_if_present};
+use crate::{
+    cargo::{CARGO_MANIFEST_FILE, load_manifest},
+    files::load_toml,
+};
 
 /// Cargo lockfile name, resolved relative to the project root.
 const CARGO_LOCK_FILE: &str = "Cargo.lock";
@@ -24,12 +27,12 @@ fn manifest_package(manifest: &Value) -> Result<Option<(&str, &str)>> {
     };
     let package = package
         .as_table()
-        .ok_or_else(|| anyhow!("Cargo.toml [package] must be a table"))?;
+        .ok_or_else(|| anyhow!("{CARGO_MANIFEST_FILE} [package] must be a table"))?;
 
     let name = package
         .get("name")
         .and_then(Value::as_str)
-        .ok_or_else(|| anyhow!("Cargo.toml [package].name must be a string"))?;
+        .ok_or_else(|| anyhow!("{CARGO_MANIFEST_FILE} [package].name must be a string"))?;
     let version = match package.get("version") {
         Some(Value::String(version)) => version.as_str(),
         Some(Value::Table(version))
@@ -38,7 +41,10 @@ fn manifest_package(manifest: &Value) -> Result<Option<(&str, &str)>> {
             return Ok(None);
         }
         _ => {
-            bail!("Cargo.toml [package].version must be a string or set 'version.workspace = true'")
+            bail!(
+                "{CARGO_MANIFEST_FILE} [package].version must be a string or set \
+                'version.workspace = true'"
+            )
         }
     };
 
@@ -86,12 +92,9 @@ pub(crate) fn check(root: &Path, out: &mut impl Write) -> Result<()> {
         return Ok(());
     };
 
-    let lock_path = root.join(CARGO_LOCK_FILE);
-    let Some(lock_contents) = read_if_present(&lock_path)? else {
+    let Some(lock) = load_toml::<Value>(&root.join(CARGO_LOCK_FILE))? else {
         return Ok(());
     };
-    let lock: Value = toml::from_str(&lock_contents)
-        .with_context(|| format!("Could not parse '{}'", lock_path.display()))?;
 
     let versions = locked_versions(&lock, name);
     if versions.contains(&manifest_version) {
@@ -101,8 +104,8 @@ pub(crate) fn check(root: &Path, out: &mut impl Write) -> Result<()> {
     if versions.is_empty() {
         writeln!(
             out,
-            "NOTE: Cargo.lock has no package entry named '{name}'; \
-            run 'cargo update --workspace' to refresh Cargo.lock."
+            "NOTE: {CARGO_LOCK_FILE} has no package entry named '{name}'; \
+            run 'cargo update --workspace' to refresh {CARGO_LOCK_FILE}."
         )?;
         return Ok(());
     }
@@ -110,9 +113,9 @@ pub(crate) fn check(root: &Path, out: &mut impl Write) -> Result<()> {
     if versions.len() == 1 {
         writeln!(
             out,
-            "NOTE: Cargo.lock version for package '{name}' is '{}', \
-            but Cargo.toml has '{manifest_version}'; \
-            run 'cargo update --workspace' to refresh Cargo.lock.",
+            "NOTE: {CARGO_LOCK_FILE} version for package '{name}' is '{}', \
+            but {CARGO_MANIFEST_FILE} has '{manifest_version}'; \
+            run 'cargo update --workspace' to refresh {CARGO_LOCK_FILE}.",
             versions[0]
         )?;
         return Ok(());
@@ -125,9 +128,9 @@ pub(crate) fn check(root: &Path, out: &mut impl Write) -> Result<()> {
         .join(", ");
     writeln!(
         out,
-        "NOTE: Cargo.lock versions for package '{name}' are {locked_versions}, \
-        but Cargo.toml has '{manifest_version}'; \
-        run 'cargo update --workspace' to refresh Cargo.lock."
+        "NOTE: {CARGO_LOCK_FILE} versions for package '{name}' are {locked_versions}, \
+        but {CARGO_MANIFEST_FILE} has '{manifest_version}'; \
+        run 'cargo update --workspace' to refresh {CARGO_LOCK_FILE}."
     )?;
 
     Ok(())

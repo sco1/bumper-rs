@@ -38,7 +38,7 @@ pub enum Command {
     /// Generate a starter .bumper.toml configuration file.
     Init {
         /// Versioning scheme for the generated configuration.
-        #[arg(long, default_value = "semver")]
+        #[arg(long, value_enum, default_value_t = VersioningType::Semver)]
         versioning_type: VersioningType,
 
         /// Overwrite an existing .bumper.toml file.

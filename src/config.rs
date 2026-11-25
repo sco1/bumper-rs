@@ -1,30 +1,44 @@
-//! Loading the `.bumper.toml` configuration file.
+//! Loading the `.bumper.toml` configuration file, and the rule that bumps its own version.
 //!
 //! The configuration lives under a `[tool.bumper]` table, with one `[[tool.bumper.files]]` entry
 //! per replacement rule. See the README for the full format.
-use std::{fmt, fs, io::ErrorKind, path::Path};
+use std::{fmt, path::Path};
 
 use anyhow::{Context, Result, bail};
 use clap::ValueEnum;
 use semver::Version;
 use serde::{Deserialize, Deserializer, de};
 
-use crate::version::parse_version;
+use crate::{files::read_if_present, version::parse_version};
 
 /// Configuration file name, resolved relative to the project root.
 pub(crate) const BUMPER_CONFIG_FILE: &str = ".bumper.toml";
+
+/// Dotted TOML key of the version field inside `.bumper.toml` itself.
+const CONFIG_VERSION_KEY: &str = "tool.bumper.current_version";
 
 /// Placeholder in a `search` pattern that is substituted with a version string.
 const VERSION_TOKEN: &str = "{current_version}";
 
 /// Versioning scheme used by the project.
 ///
-/// Deserialized from the lowercase strings `"semver"` and `"calver"`.
+/// Written as `"semver"` or `"calver"`, both in the configuration file and on the command line;
+/// [`Display`](fmt::Display) produces the same names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum VersioningType {
     Semver,
     Calver,
+}
+
+/// Display the scheme as it is written in the configuration and on the command line.
+impl fmt::Display for VersioningType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let value = self
+            .to_possible_value()
+            .expect("VersioningType has no skipped variants");
+        f.write_str(value.get_name())
+    }
 }
 
 /// A `search` pattern containing at least one `{current_version}` token.
@@ -110,6 +124,17 @@ pub struct BumpRule {
     pub kind: RuleKind,
 }
 
+/// Return the rule that bumps `current_version` in `.bumper.toml` itself.
+///
+/// This rule is always appended to the configured rules so that the configuration file is bumped
+/// alongside the project files.
+pub fn self_rule() -> BumpRule {
+    BumpRule {
+        file: BUMPER_CONFIG_FILE.to_owned(),
+        kind: RuleKind::Key(CONFIG_VERSION_KEY.to_owned()),
+    }
+}
+
 /// Require exactly one of `search` or `key` to be set, and a `search` to be a valid
 /// [`SearchPattern`].
 impl TryFrom<RawBumpRule> for BumpRule {
@@ -189,16 +214,8 @@ where
 pub fn load(root: &Path) -> Result<Config> {
     let cfg_file = root.join(BUMPER_CONFIG_FILE);
 
-    let contents = match fs::read_to_string(&cfg_file) {
-        Ok(contents) => contents,
-        Err(e) if e.kind() == ErrorKind::NotFound => {
-            bail!("Configuration file '{BUMPER_CONFIG_FILE}' could not be located.");
-        }
-        Err(e) => {
-            return Err(e).with_context(|| {
-                format!("Could not read configuration file '{}'", cfg_file.display())
-            });
-        }
+    let Some(contents) = read_if_present(&cfg_file)? else {
+        bail!("Configuration file '{BUMPER_CONFIG_FILE}' could not be located.");
     };
 
     let parsed: ConfigFile = toml::from_str(&contents)

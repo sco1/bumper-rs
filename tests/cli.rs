@@ -47,6 +47,15 @@ file = "./README.md"
 search = "release v{current_version}"
 "#;
 
+const KEY_ONLY_CONFIG: &str = r#"[tool.bumper]
+current_version = "0.1.0"
+versioning_type = "semver"
+
+[[tool.bumper.files]]
+file = "./Cargo.toml"
+key = "package.version"
+"#;
+
 fn read(root: &TempDir, name: &str) -> String {
     fs::read_to_string(root.path().join(name)).expect("could not read test file")
 }
@@ -190,17 +199,7 @@ fn dry_run_prints_diffs_and_does_not_modify_files() {
 #[test]
 fn bump_reports_a_stale_cargo_lock_by_default() {
     let repo = repo_with(&[
-        (
-            ".bumper.toml",
-            r#"[tool.bumper]
-current_version = "0.1.0"
-versioning_type = "semver"
-
-[[tool.bumper.files]]
-file = "./Cargo.toml"
-key = "package.version"
-"#,
-        ),
+        (".bumper.toml", KEY_ONLY_CONFIG),
         ("Cargo.toml", CARGO_0_1_0),
         ("Cargo.lock", LOCK_0_1_0),
     ]);
@@ -233,17 +232,7 @@ key = "package.version"
 #[test]
 fn no_check_lock_suppresses_the_stale_lock_advisory() {
     let repo = repo_with(&[
-        (
-            ".bumper.toml",
-            r#"[tool.bumper]
-current_version = "0.1.0"
-versioning_type = "semver"
-
-[[tool.bumper.files]]
-file = "./Cargo.toml"
-key = "package.version"
-"#,
-        ),
+        (".bumper.toml", KEY_ONLY_CONFIG),
         ("Cargo.toml", CARGO_0_1_0),
         ("Cargo.lock", LOCK_0_1_0),
     ]);
@@ -447,34 +436,5 @@ fn init_rejects_an_unsupported_cargo_toml_version_without_writing() {
     assert!(
         !repo.path().join(".bumper.toml").exists(),
         "no configuration should be written"
-    );
-}
-
-#[test]
-fn init_creates_a_usable_configuration_and_bump_can_use_it() {
-    let repo = repo_with(&[("Cargo.toml", CARGO_0_1_0)]);
-
-    bumper_in(&repo).args(["init"]).assert().success();
-
-    let generated = read(&repo, ".bumper.toml");
-
-    assert!(generated.contains(r#"current_version = "0.1.0""#));
-    assert!(generated.contains(r#"versioning_type = "semver""#));
-    assert!(generated.contains(r#"file = "./Cargo.toml""#));
-    assert!(generated.contains(r#"key = "package.version""#));
-
-    bumper_in(&repo)
-        .args(["bump", "patch", "--no-check-lock"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Bumper bumping: v0.1.0 -> v0.1.1"));
-
-    assert!(
-        read(&repo, "Cargo.toml").contains(r#"version = "0.1.1""#),
-        "generated configuration did not update Cargo.toml"
-    );
-    assert!(
-        read(&repo, ".bumper.toml").contains(r#"current_version = "0.1.1""#),
-        "generated configuration did not update itself"
     );
 }

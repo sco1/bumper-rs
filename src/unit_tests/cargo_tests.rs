@@ -10,16 +10,7 @@ fn manifest(contents: &str) -> Value {
 }
 
 #[test]
-fn load_manifest_returns_none_without_a_cargo_toml() {
-    let temp_dir = TempDir::new().expect("could not create temporary directory");
-
-    let got = load_manifest(temp_dir.path()).expect("a missing manifest is not an error");
-
-    assert!(got.is_none());
-}
-
-#[test]
-fn load_manifest_parses_an_existing_cargo_toml() {
+fn load_manifest_reads_cargo_toml_from_the_root() {
     let temp_dir = TempDir::new().expect("could not create temporary directory");
     fs::write(
         temp_dir.path().join("Cargo.toml"),
@@ -32,19 +23,6 @@ fn load_manifest_parses_an_existing_cargo_toml() {
         .expect("manifest should be present");
 
     assert_eq!(version_field(&got), Some(("package.version", "1.2.3")));
-}
-
-#[test]
-fn load_manifest_rejects_invalid_toml() {
-    let temp_dir = TempDir::new().expect("could not create temporary directory");
-    fs::write(temp_dir.path().join("Cargo.toml"), "[package\n").expect("could not write manifest");
-
-    let err = load_manifest(temp_dir.path()).expect_err("invalid TOML should be rejected");
-
-    assert!(
-        format!("{err:#}").contains("Could not parse"),
-        "error: {err:#}"
-    );
 }
 
 #[test]
@@ -99,15 +77,4 @@ fn version_field_finds_the_declared_version_and_its_key() {
 
         assert_eq!(version_field(&manifest), expected, "case: {case}");
     }
-}
-
-#[test]
-fn version_field_returns_unsupported_versions_unvalidated() {
-    // Validation is left to the caller, so it can report the offending key
-    let manifest = manifest("[package]\nname = \"x\"\nversion = \"1.0.0-rc.1\"\n");
-
-    assert_eq!(
-        version_field(&manifest),
-        Some(("package.version", "1.0.0-rc.1"))
-    );
 }

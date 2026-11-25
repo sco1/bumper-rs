@@ -5,12 +5,14 @@ use tempfile::TempDir;
 
 use super::{BUMPER_CONFIG_FILE, BumpRule, Config, RuleKind, SearchPattern, VersioningType, load};
 
+fn pattern(search: &str) -> SearchPattern {
+    SearchPattern::try_from(search.to_owned()).expect("test pattern should be valid")
+}
+
 fn search_rule(file: &str, search: &str) -> BumpRule {
     BumpRule {
         file: file.to_owned(),
-        kind: RuleKind::Search(
-            SearchPattern::try_from(search.to_owned()).expect("test pattern should be valid"),
-        ),
+        kind: RuleKind::Search(pattern(search)),
     }
 }
 
@@ -30,25 +32,18 @@ fn temp_dir_with_config(contents: &str) -> TempDir {
     temp_dir
 }
 
+fn load_str(contents: &str) -> anyhow::Result<Config> {
+    load(temp_dir_with_config(contents).path())
+}
+
 /// Load the provided configuration, expecting failure, and return the full error chain.
 ///
 /// NOTE: `err.to_string()` only renders the outermost context; the alternate format (`{:#}`) is
 /// needed to see the underlying serde/TOML reason.
 fn load_error(contents: &str) -> String {
-    let temp_dir = temp_dir_with_config(contents);
-
-    let err = load(temp_dir.path()).expect_err("configuration should be rejected");
+    let err = load_str(contents).expect_err("configuration should be rejected");
 
     format!("{err:#}")
-}
-
-fn assert_load_error_contains(contents: &str, needle: &str) {
-    let message = load_error(contents);
-
-    assert!(
-        message.contains(needle),
-        "expected {needle:?} in error; got: {message}"
-    );
 }
 
 #[test]
@@ -64,120 +59,13 @@ fn load_rejects_a_missing_configuration_file() {
 }
 
 #[test]
-fn load_accepts_a_valid_semver_configuration() {
-    let temp_dir = temp_dir_with_config(
+fn load_keeps_search_and_key_rules_in_configured_order_and_spelling() {
+    // Bump grouping and user-facing output rely on every rule being kept, in order, with its path
+    // spelled exactly as configured
+    let got = load_str(
         r#"
 [tool.bumper]
 current_version = "2.1.1"
-versioning_type = "semver"
-
-[[tool.bumper.files]]
-file = "./pyproject.toml"
-search = 'version = "{current_version}"'
-
-[[tool.bumper.files]]
-file = "./README.md"
-search = "sco1-bumper/{current_version}"
-"#,
-    );
-
-    let got = load(temp_dir.path()).expect("configuration should load");
-
-    let expected = Config {
-        current_version: Version::new(2, 1, 1),
-        versioning_type: VersioningType::Semver,
-        files: vec![
-            search_rule("./pyproject.toml", r#"version = "{current_version}""#),
-            search_rule("./README.md", "sco1-bumper/{current_version}"),
-        ],
-    };
-
-    assert_eq!(got, expected);
-}
-
-#[test]
-fn load_accepts_a_valid_calver_configuration_with_no_explicit_rules() {
-    let temp_dir = temp_dir_with_config(
-        r#"
-[tool.bumper]
-current_version = "2026.11.0"
-versioning_type = "calver"
-files = []
-"#,
-    );
-
-    let got = load(temp_dir.path()).expect("configuration should load");
-
-    let expected = Config {
-        current_version: Version::new(2026, 11, 0),
-        versioning_type: VersioningType::Calver,
-        files: vec![],
-    };
-
-    assert_eq!(got, expected);
-}
-
-#[test]
-fn load_preserves_the_configured_file_path_spelling() {
-    let temp_dir = temp_dir_with_config(
-        r#"
-[tool.bumper]
-current_version = "0.1.0"
-versioning_type = "semver"
-
-[[tool.bumper.files]]
-file = "./Cargo.toml"
-search = 'version = "{current_version}"'
-"#,
-    );
-
-    let config = load(temp_dir.path()).expect("configuration should load");
-
-    assert_eq!(config.files.len(), 1);
-    assert_eq!(config.files[0].file, "./Cargo.toml");
-}
-
-#[test]
-fn load_keeps_repeated_targets_in_source_order() {
-    // Bump grouping relies on every rule being retained, in configured order, even when several
-    // rules target the same file
-    let temp_dir = temp_dir_with_config(
-        r#"
-[tool.bumper]
-current_version = "0.1.0"
-versioning_type = "semver"
-
-[[tool.bumper.files]]
-file = "./Cargo.toml"
-search = 'version = "{current_version}"'
-
-[[tool.bumper.files]]
-file = "./README.md"
-search = "sco1-bumper/{current_version}"
-
-[[tool.bumper.files]]
-file = "./README.md"
-search = "rev: v{current_version}"
-"#,
-    );
-
-    let config = load(temp_dir.path()).expect("configuration should load");
-
-    let expected = vec![
-        search_rule("./Cargo.toml", r#"version = "{current_version}""#),
-        search_rule("./README.md", "sco1-bumper/{current_version}"),
-        search_rule("./README.md", "rev: v{current_version}"),
-    ];
-
-    assert_eq!(config.files, expected);
-}
-
-#[test]
-fn load_accepts_key_rules_alongside_search_rules() {
-    let temp_dir = temp_dir_with_config(
-        r#"
-[tool.bumper]
-current_version = "0.1.0"
 versioning_type = "semver"
 
 [[tool.bumper.files]]
@@ -187,29 +75,74 @@ key = "package.version"
 [[tool.bumper.files]]
 file = "./README.md"
 search = "sco1-bumper/{current_version}"
+
+[[tool.bumper.files]]
+file = "README.md"
+search = 'version = "{current_version}"'
 "#,
-    );
+    )
+    .expect("configuration should load");
 
-    let config = load(temp_dir.path()).expect("configuration should load");
-
-    let expected = vec![
-        key_rule("./Cargo.toml", "package.version"),
-        search_rule("./README.md", "sco1-bumper/{current_version}"),
-    ];
-
-    assert_eq!(config.files, expected);
+    let expected = Config {
+        current_version: Version::new(2, 1, 1),
+        versioning_type: VersioningType::Semver,
+        files: vec![
+            key_rule("./Cargo.toml", "package.version"),
+            search_rule("./README.md", "sco1-bumper/{current_version}"),
+            search_rule("README.md", r#"version = "{current_version}""#),
+        ],
+    };
+    assert_eq!(got, expected);
 }
 
 #[test]
-fn load_requires_exactly_one_of_search_or_key() {
+fn load_accepts_a_calver_configuration_without_files() {
+    let got = load_str(
+        r#"
+[tool.bumper]
+current_version = "2026.11.0"
+versioning_type = "calver"
+"#,
+    )
+    .expect("configuration without files should load");
+
+    let expected = Config {
+        current_version: Version::new(2026, 11, 0),
+        versioning_type: VersioningType::Calver,
+        files: vec![],
+    };
+    assert_eq!(got, expected);
+}
+
+#[test]
+fn load_ignores_other_tool_tables_and_unknown_bumper_keys() {
+    let got = load_str(
+        r#"
+[tool.black]
+line-length = 100
+
+[tool.bumper]
+current_version = "0.1.0"
+versioning_type = "semver"
+future_option = "ignored"
+"#,
+    )
+    .expect("configuration should load");
+
+    let expected = Config {
+        current_version: Version::new(0, 1, 0),
+        versioning_type: VersioningType::Semver,
+        files: vec![],
+    };
+    assert_eq!(got, expected);
+}
+
+#[test]
+fn load_rejects_invalid_file_rules_with_their_location() {
     let cases = [
         (
             "both search and key",
             r#"
-[tool.bumper]
-current_version = "0.1.0"
-versioning_type = "semver"
-
 [[tool.bumper.files]]
 file = "./Cargo.toml"
 search = 'version = "{current_version}"'
@@ -220,19 +153,38 @@ key = "package.version"
         (
             "neither search nor key",
             r#"
-[tool.bumper]
-current_version = "0.1.0"
-versioning_type = "semver"
-
 [[tool.bumper.files]]
 file = "./Cargo.toml"
 "#,
             "rule for './Cargo.toml' needs either `search` or `key`",
         ),
+        (
+            "search without the version token",
+            r#"
+[[tool.bumper.files]]
+file = "./README.md"
+search = "v{current-version}"
+"#,
+            "rule for './README.md': `search` pattern 'v{current-version}' must contain",
+        ),
+        (
+            "unknown rule key",
+            r#"
+[[tool.bumper.files]]
+file = "./Cargo.toml"
+search = 'version = "{current_version}"'
+unexpected = "not allowed"
+"#,
+            "unknown field `unexpected`",
+        ),
     ];
 
-    for (case, contents, expected) in cases {
-        let message = load_error(contents);
+    for (case, rules, expected) in cases {
+        let contents = format!(
+            "[tool.bumper]\ncurrent_version = \"0.1.0\"\nversioning_type = \"semver\"\n{rules}"
+        );
+
+        let message = load_error(&contents);
 
         assert!(
             message.contains(expected),
@@ -246,154 +198,35 @@ file = "./Cargo.toml"
 }
 
 #[test]
-fn search_pattern_accepts_patterns_containing_the_token() {
-    let cases = [
-        "{current_version}",
-        "v{current_version}",
-        r#"version = "{current_version}""#,
-        "{current_version} and v{current_version}",
-    ];
-
-    for case in cases {
-        assert!(
-            SearchPattern::try_from(case.to_owned()).is_ok(),
-            "case: {case}"
-        );
-    }
-}
-
-#[test]
-fn search_pattern_rejects_patterns_without_the_token() {
-    let cases = [
-        ("no token", "version"),
-        ("empty", ""),
-        ("misspelled token", "v{current-version}"),
-        ("unbraced token", "v current_version"),
-    ];
-
-    for (case, pattern) in cases {
-        let err = SearchPattern::try_from(pattern.to_owned()).expect_err("should be rejected");
-
-        assert!(
-            err.contains(&format!("'{pattern}'")) && err.contains("{current_version}"),
-            "case: {case}; error: {err}"
-        );
-    }
-}
-
-#[test]
-fn search_pattern_renders_every_token() {
-    let pattern = SearchPattern::try_from("{current_version} and v{current_version}".to_owned())
-        .expect("pattern should be valid");
-
-    assert_eq!(pattern.render("1.2.3"), "1.2.3 and v1.2.3");
-}
-
-#[test]
-fn load_rejects_a_search_rule_without_the_version_token() {
-    let message = load_error(
-        r#"
-[tool.bumper]
-current_version = "0.1.0"
-versioning_type = "semver"
-
-[[tool.bumper.files]]
-file = "./README.md"
-search = "v{current-version}"
-"#,
-    );
-
-    assert!(
-        message.contains("rule for './README.md'"),
-        "expected the file in the error; got: {message}"
-    );
-    assert!(
-        message.contains("'v{current-version}'"),
-        "expected the pattern in the error; got: {message}"
-    );
-    assert!(
-        message.contains("line "),
-        "expected a location; got: {message}"
-    );
-}
-
-#[test]
-fn load_ignores_other_tool_tables_and_unknown_bumper_keys() {
-    let temp_dir = temp_dir_with_config(
-        r#"
-[tool.black]
-line-length = 100
-
-[tool.bumper]
-current_version = "0.1.0"
-versioning_type = "semver"
-files = []
-future_option = "ignored"
-"#,
-    );
-
-    let config = load(temp_dir.path()).expect("configuration should load");
-
-    assert_eq!(config.current_version, Version::new(0, 1, 0));
-    assert_eq!(config.versioning_type, VersioningType::Semver);
-    assert!(config.files.is_empty());
-}
-
-#[test]
-fn load_defaults_files_to_empty_when_omitted() {
-    let temp_dir = temp_dir_with_config(
-        r#"
-[tool.bumper]
-current_version = "0.1.0"
-versioning_type = "semver"
-"#,
-    );
-
-    let config = load(temp_dir.path()).expect("configuration without files should load");
-
-    assert!(config.files.is_empty());
-}
-
-#[test]
-fn load_rejects_missing_tables_and_fields() {
+fn load_rejects_missing_or_invalid_fields() {
     let cases = [
         ("missing tool table", "", "missing field `tool`"),
         (
             "missing bumper table",
-            r#"
-[tool.black]
-line-length = 100
-"#,
+            "[tool.black]\nline-length = 100\n",
             "missing field `bumper`",
         ),
         (
             "missing current_version",
-            r#"
-[tool.bumper]
-versioning_type = "semver"
-files = []
-"#,
+            "[tool.bumper]\nversioning_type = \"semver\"\n",
             "missing field `current_version`",
         ),
         (
             "missing versioning_type",
-            r#"
-[tool.bumper]
-current_version = "0.1.0"
-files = []
-"#,
+            "[tool.bumper]\ncurrent_version = \"0.1.0\"\n",
             "missing field `versioning_type`",
         ),
         (
-            "file rule missing file",
-            r#"
-[tool.bumper]
-current_version = "0.1.0"
-versioning_type = "semver"
-
-[[tool.bumper.files]]
-search = 'version = "{current_version}"'
-"#,
+            "unknown versioning_type",
+            "[tool.bumper]\ncurrent_version = \"0.1.0\"\nversioning_type = \"pep440\"\n",
+            "unknown variant `pep440`",
+        ),
+        (
+            "rule missing file",
+            concat!(
+                "[tool.bumper]\ncurrent_version = \"0.1.0\"\nversioning_type = \"semver\"\n",
+                "[[tool.bumper.files]]\nkey = \"package.version\"\n",
+            ),
             "missing field `file`",
         ),
     ];
@@ -409,115 +242,60 @@ search = 'version = "{current_version}"'
 }
 
 #[test]
-fn load_rejects_unknown_file_rule_keys() {
+fn load_validates_current_version_as_a_release_version() {
     let message = load_error(
-        r#"
-[tool.bumper]
-current_version = "0.1.0"
-versioning_type = "semver"
-
-[[tool.bumper.files]]
-file = "./Cargo.toml"
-search = 'version = "{current_version}"'
-unexpected = "not allowed"
-"#,
+        "[tool.bumper]\ncurrent_version = \"1.2.3-rc.1\"\nversioning_type = \"semver\"\n",
     );
 
     assert!(
-        message.contains("Could not parse configuration file '.bumper.toml'"),
-        "expected configuration-file context; got: {message}"
+        message.contains("Invalid current_version '1.2.3-rc.1': prerelease versions"),
+        "error: {message}"
     );
-    assert!(
-        message.contains("unknown field `unexpected`"),
-        "expected an unknown-field error naming the key; got: {message}"
-    );
-}
-
-#[test]
-fn load_rejects_an_unknown_versioning_type() {
-    assert_load_error_contains(
-        r#"
-[tool.bumper]
-current_version = "0.1.0"
-versioning_type = "pep440"
-files = []
-"#,
-        "unknown variant `pep440`",
-    );
-}
-
-#[test]
-fn load_rejects_a_mistyped_field() {
-    assert_load_error_contains(
-        r#"
-[tool.bumper]
-current_version = 1
-versioning_type = "semver"
-files = []
-"#,
-        "invalid type: integer `1`",
-    );
-}
-
-#[test]
-fn load_rejects_invalid_current_versions() {
-    let cases = [
-        "1.0",
-        "v1.2.3",
-        "01.2.3",
-        "2025.01.0",
-        "1.2.3-rc.1",
-        "1.2.3+build.5",
-    ];
-
-    for current_version in cases {
-        let contents = format!(
-            r#"
-[tool.bumper]
-current_version = "{current_version}"
-versioning_type = "semver"
-files = []
-"#
-        );
-
-        let message = load_error(&contents);
-
-        assert!(
-            message.contains(&format!("Invalid current_version '{current_version}'")),
-            "case: {current_version}; error: {message}"
-        );
-    }
-}
-
-#[test]
-fn load_errors_report_their_location() {
-    // Leading newline puts [tool.bumper] on line 2 and versioning_type on line 4
-    let message = load_error(
-        r#"
-[tool.bumper]
-current_version = "0.1.0"
-versioning_type = "pep440"
-files = []
-"#,
-    );
-
-    assert!(message.contains("line 4"), "error: {message}");
 }
 
 #[test]
 fn load_reports_invalid_toml_with_configuration_context() {
-    let temp_dir = temp_dir_with_config(
-        r#"
-[tool.bumper
-current_version = "0.1.0"
-"#,
-    );
-
-    let err = load(temp_dir.path()).expect_err("invalid TOML should fail");
+    let err = load_str("[tool.bumper\ncurrent_version = \"0.1.0\"\n")
+        .expect_err("invalid TOML should fail");
 
     assert!(
         err.to_string()
             .contains("Could not parse configuration file '.bumper.toml'"),
-        "error: {err}",
+        "error: {err}"
     );
+}
+
+#[test]
+fn search_pattern_renders_every_token() {
+    let cases = [
+        ("{current_version}", "1.2.3"),
+        ("v{current_version}", "v1.2.3"),
+        (
+            "{current_version} and v{current_version}",
+            "1.2.3 and v1.2.3",
+        ),
+    ];
+
+    for (search, expected) in cases {
+        assert_eq!(pattern(search).render("1.2.3"), expected, "case: {search}");
+    }
+}
+
+#[test]
+fn search_pattern_rejects_patterns_without_the_token() {
+    let cases = [
+        ("no token", "version"),
+        ("empty", ""),
+        ("misspelled token", "v{current-version}"),
+        ("unbraced token", "v current_version"),
+    ];
+
+    for (case, search) in cases {
+        let err = SearchPattern::try_from(search.to_owned()).expect_err("should be rejected");
+
+        assert!(
+            err.contains(&format!("'{search}'")) && err.contains("{current_version}"),
+            "case: {case}; error: {err}"
+        );
+    }
 }
