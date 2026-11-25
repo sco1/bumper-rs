@@ -18,5 +18,5 @@ pub(crate) fn render(file: &str, original: &str, updated: &str) -> String {
 }
 
 #[cfg(test)]
-#[path = "diff_tests.rs"]
+#[path = "unit_tests/diff_tests.rs"]
 mod tests;

@@ -1,8 +1,8 @@
 [package]
 name = "sco1-bumper"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.95"
 description = "Automatically increment the project's version number."
 license = "MIT"
 repository = "https://github.com/sco1/bumper-rs"

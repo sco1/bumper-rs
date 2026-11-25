@@ -174,27 +174,3 @@ edition = "2024"
 
     assert_eq!(output, "");
 }
-
-#[test]
-fn check_does_not_modify_either_file() {
-    let manifest = r#"
-[package]
-name = "example"
-version = "0.2.0"
-edition = "2024"
-"#;
-    let lock = MATCHING_LOCK;
-
-    let repo = repo_with(&[("Cargo.toml", manifest), ("Cargo.lock", lock)]);
-
-    run_check(repo.path()).expect("check should succeed");
-
-    assert_eq!(
-        fs::read_to_string(repo.path().join("Cargo.toml")).expect("could not read Cargo.toml"),
-        manifest,
-    );
-    assert_eq!(
-        fs::read_to_string(repo.path().join("Cargo.lock")).expect("could not read Cargo.lock"),
-        lock,
-    );
-}

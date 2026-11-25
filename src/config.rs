@@ -1,31 +1,84 @@
-//! Loading and generating the `.bumper.toml` configuration file.
+//! Loading the `.bumper.toml` configuration file, and the rule that bumps its own version.
 //!
 //! The configuration lives under a `[tool.bumper]` table, with one `[[tool.bumper.files]]` entry
 //! per replacement rule. See the README for the full format.
-use std::{
-    fs,
-    io::{ErrorKind, Write},
-    path::Path,
-};
+use std::{fmt, path::Path};
 
 use anyhow::{Context, Result, bail};
 use clap::ValueEnum;
 use semver::Version;
 use serde::{Deserialize, Deserializer, de};
 
-use crate::version::{YearMonth, parse_version};
+use crate::{files::read_if_present, version::parse_version};
 
 /// Configuration file name, resolved relative to the project root.
 pub(crate) const BUMPER_CONFIG_FILE: &str = ".bumper.toml";
 
+/// Dotted TOML key of the version field inside `.bumper.toml` itself.
+const CONFIG_VERSION_KEY: &str = "tool.bumper.current_version";
+
+/// Placeholder in a `search` pattern that is substituted with a version string.
+const VERSION_TOKEN: &str = "{current_version}";
+
 /// Versioning scheme used by the project.
 ///
-/// Deserialized from the lowercase strings `"semver"` and `"calver"`.
+/// Written as `"semver"` or `"calver"`, both in the configuration file and on the command line;
+/// [`Display`](fmt::Display) produces the same names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum VersioningType {
     Semver,
     Calver,
+}
+
+/// Display the scheme as it is written in the configuration and on the command line.
+impl fmt::Display for VersioningType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let value = self
+            .to_possible_value()
+            .expect("VersioningType has no skipped variants");
+        f.write_str(value.get_name())
+    }
+}
+
+/// A `search` pattern containing at least one `{current_version}` token.
+///
+/// Constructed only via [`TryFrom<String>`], so every instance is guaranteed to reference the
+/// version.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchPattern(String);
+
+impl SearchPattern {
+    /// Return the pattern with every `{current_version}` token replaced by `version`.
+    pub fn render(&self, version: &str) -> String {
+        self.0.replace(VERSION_TOKEN, version)
+    }
+}
+
+/// Display the pattern as written in the configuration, with its token unrendered.
+impl fmt::Display for SearchPattern {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl TryFrom<String> for SearchPattern {
+    type Error = String;
+
+    /// Validate that `pattern` contains the `{current_version}` token.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `pattern` does not contain `{current_version}`.
+    fn try_from(pattern: String) -> Result<Self, Self::Error> {
+        if pattern.contains(VERSION_TOKEN) {
+            Ok(Self(pattern))
+        } else {
+            Err(format!(
+                "`search` pattern '{pattern}' must contain `{VERSION_TOKEN}`"
+            ))
+        }
+    }
 }
 
 /// How a [`BumpRule`] locates the version to replace within its target file.
@@ -35,11 +88,21 @@ pub enum RuleKind {
     ///
     /// Every occurrence of the pattern, with the token substituted by the current version, is
     /// replaced by the same pattern with the token substituted by the next version.
-    Search(String),
+    Search(SearchPattern),
     /// Dotted TOML key path, e.g. `package.version`.
     ///
     /// Only the string value at that key is updated, and only if it equals the current version.
     Key(String),
+}
+
+/// Describe the rule as it would be written in the configuration, e.g. `key 'package.version'`.
+impl fmt::Display for RuleKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RuleKind::Search(search) => write!(f, "search '{search}'"),
+            RuleKind::Key(key) => write!(f, "key '{key}'"),
+        }
+    }
 }
 
 /// Raw `[[tool.bumper.files]]` entry, validated into a [`BumpRule`] on deserialization.
@@ -61,13 +124,28 @@ pub struct BumpRule {
     pub kind: RuleKind,
 }
 
-/// Require exactly one of `search` or `key` to be set.
+/// Return the rule that bumps `current_version` in `.bumper.toml` itself.
+///
+/// This rule is always appended to the configured rules so that the configuration file is bumped
+/// alongside the project files.
+pub fn self_rule() -> BumpRule {
+    BumpRule {
+        file: BUMPER_CONFIG_FILE.to_owned(),
+        kind: RuleKind::Key(CONFIG_VERSION_KEY.to_owned()),
+    }
+}
+
+/// Require exactly one of `search` or `key` to be set, and a `search` to be a valid
+/// [`SearchPattern`].
 impl TryFrom<RawBumpRule> for BumpRule {
     type Error = String; // anything that implements Display
 
     fn try_from(raw: RawBumpRule) -> Result<Self, Self::Error> {
         let kind = match (raw.search, raw.key) {
-            (Some(search), None) => RuleKind::Search(search),
+            (Some(search), None) => RuleKind::Search(
+                SearchPattern::try_from(search)
+                    .map_err(|e| format!("rule for '{}': {e}", raw.file))?,
+            ),
             (None, Some(key)) => RuleKind::Key(key),
             (Some(_), Some(_)) => {
                 return Err(format!(
@@ -98,7 +176,8 @@ pub struct Config {
     pub current_version: Version,
     /// Versioning scheme used to compute the next version.
     pub versioning_type: VersioningType,
-    /// Replacement rules, in the order they appear in the configuration file.
+    /// Replacement rules, in the order they appear in the configuration file; empty if omitted.
+    #[serde(default)]
     pub files: Vec<BumpRule>,
 }
 
@@ -135,16 +214,8 @@ where
 pub fn load(root: &Path) -> Result<Config> {
     let cfg_file = root.join(BUMPER_CONFIG_FILE);
 
-    let contents = match fs::read_to_string(&cfg_file) {
-        Ok(contents) => contents,
-        Err(e) if e.kind() == ErrorKind::NotFound => {
-            bail!("Configuration file '{BUMPER_CONFIG_FILE}' could not be located.");
-        }
-        Err(e) => {
-            return Err(e).with_context(|| {
-                format!("Could not read configuration file '{}'", cfg_file.display())
-            });
-        }
+    let Some(contents) = read_if_present(&cfg_file)? else {
+        bail!("Configuration file '{BUMPER_CONFIG_FILE}' could not be located.");
     };
 
     let parsed: ConfigFile = toml::from_str(&contents)
@@ -153,89 +224,6 @@ pub fn load(root: &Path) -> Result<Config> {
     Ok(parsed.tool.bumper)
 }
 
-/// Render the starter configuration used by [`init`].
-///
-/// The starting version is `0.1.0` for SemVer, or `<year>.<month>.0` from `today` for CalVer. The
-/// template includes a single rule that bumps `package.version` in `./Cargo.toml`.
-fn init_template(versioning_type: VersioningType, today: YearMonth) -> String {
-    let current_version = match versioning_type {
-        VersioningType::Semver => "0.1.0".to_owned(),
-        VersioningType::Calver => format!("{}.{}.0", today.year, today.month),
-    };
-
-    let versioning_type = match versioning_type {
-        VersioningType::Semver => "semver",
-        VersioningType::Calver => "calver",
-    };
-
-    format!(
-        r#"[tool.bumper]
-current_version = "{current_version}"
-versioning_type = "{versioning_type}"
-
-[[tool.bumper.files]]
-file = "./Cargo.toml"
-key = "package.version"
-"#
-    )
-}
-
-/// Write a starter `.bumper.toml` into `root`.
-///
-/// `today` sets the starting version for CalVer projects. An existing configuration file is only
-/// replaced when `ignore_existing` is set; otherwise an existing file is never clobbered.
-///
-/// # Errors
-///
-/// Returns an error if the configuration file already exists (and `ignore_existing` is not set), or
-/// if it cannot be written.
-pub fn init(
-    root: &Path,
-    versioning_type: VersioningType,
-    ignore_existing: bool,
-    today: YearMonth,
-) -> Result<()> {
-    let cfg_file = root.join(BUMPER_CONFIG_FILE);
-    let contents = init_template(versioning_type, today);
-
-    if ignore_existing {
-        fs::write(&cfg_file, contents).with_context(|| {
-            format!(
-                "Could not write configuration file '{}'",
-                cfg_file.display()
-            )
-        })?;
-        return Ok(());
-    }
-
-    let mut file = match fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&cfg_file)
-    {
-        Ok(file) => file,
-        Err(e) if e.kind() == ErrorKind::AlreadyExists => {
-            bail!("Configuration file already exists: '{BUMPER_CONFIG_FILE}'")
-        }
-        Err(e) => {
-            return Err(e).with_context(|| {
-                format!(
-                    "Could not write configuration file '{}'",
-                    cfg_file.display()
-                )
-            });
-        }
-    };
-
-    file.write_all(contents.as_bytes()).with_context(|| {
-        format!(
-            "Could not write configuration file '{}'",
-            cfg_file.display()
-        )
-    })?;
-    Ok(())
-}
-
 #[cfg(test)]
-#[path = "config_tests.rs"]
+#[path = "unit_tests/config_tests.rs"]
 mod tests;

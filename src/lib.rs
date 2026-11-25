@@ -2,7 +2,7 @@
 //!
 //! This crate is intended to be used via its `bumper` binary, which is a thin wrapper around
 //! [`cli_main`]. No library API is provided; all other items are internal and are not covered by
-//! semver guarantees.
+//! SemVer guarantees.
 
 // The library is organized as a small pipeline:
 //
@@ -11,8 +11,15 @@
 //    the requested `BumpType`.
 // 3. `bump` plans the per-file text replacements and then either applies them or previews them as a
 //    diff.
+// 4. After applying, `lock` notes if `Cargo.lock` no longer matches the bumped `Cargo.toml`
+//    version. This is skipped for previews and with `--no-check-lock`.
 //
-// `run` ties these steps together for each `cli::Command`.
+// `run` dispatches each `cli::Command`: the `bump` subcommand runs the steps above, while the
+// `init` subcommand uses `cargo` to find the version declared in `Cargo.toml` and `init` to write a
+// starter `.bumper.toml` from it.
+//
+// `config`, `cargo`, and `lock` read files that may be absent through the shared helpers in
+// `files`.
 use std::{
     env,
     io::{self, Write},
@@ -20,26 +27,24 @@ use std::{
     process::ExitCode,
 };
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::Parser;
 
 mod bump;
+mod cargo;
 mod cli;
 mod config;
 mod diff;
+mod files;
+mod init;
 mod lock;
 mod version;
 
-use bump::{apply, plan, preview};
+use bump::{FileChange, apply, plan, preview};
+use cargo::CARGO_MANIFEST_FILE;
 use cli::{Cli, Command};
-use config::{BUMPER_CONFIG_FILE, BumpRule, RuleKind};
-use version::YearMonth;
-
-/// Dotted TOML key of the version field inside `.bumper.toml` itself.
-///
-/// A rule targeting this key is always appended to the configured rules so that the configuration
-/// file is bumped alongside the project files.
-const CONFIG_VERSION_KEY: &str = "tool.bumper.current_version";
+use config::{BUMPER_CONFIG_FILE, VersioningType};
+use version::{YearMonth, parse_version};
 
 /// Run the `bumper` CLI using the process arguments and the current working directory as the
 /// project root.
@@ -80,12 +85,13 @@ fn run(command: Command, root: &Path, out: &mut impl Write) -> Result<()> {
         Command::Bump {
             bump,
             dry_run,
+            strict,
             check_lock,
-        } => run_bump(root, bump, dry_run, check_lock, out),
+        } => run_bump(root, bump, dry_run, strict, check_lock, out),
         Command::Init {
             versioning_type,
             ignore_existing,
-        } => config::init(root, versioning_type, ignore_existing, YearMonth::now_utc()),
+        } => run_init(root, versioning_type, ignore_existing, out),
     }
 }
 
@@ -95,6 +101,9 @@ fn run(command: Command, root: &Path, out: &mut impl Write) -> Result<()> {
 /// rule plus the `.bumper.toml` version itself. All files are read and planned before any are
 /// written, so a planning failure leaves the working tree untouched.
 ///
+/// Rules that match nothing are reported as warnings. With `strict`, they are an error instead,
+/// raised before anything is previewed or written.
+///
 /// With `dry_run`, the planned changes are previewed as a diff and nothing is written. Otherwise
 /// the changes are applied and, if `check_lock` is set, `Cargo.lock` is checked against the bumped
 /// `Cargo.toml` version.
@@ -102,6 +111,7 @@ fn run_bump(
     root: &Path,
     bump_type: version::BumpType,
     dry_run: bool,
+    strict: bool,
     check_lock: bool,
     out: &mut impl Write,
 ) -> Result<()> {
@@ -109,18 +119,27 @@ fn run_bump(
     let next = version::next_version(&config.current_version, config.versioning_type, bump_type)?;
 
     let mut rules = config.files.clone();
-    rules.push(BumpRule {
-        file: BUMPER_CONFIG_FILE.to_owned(),
-        kind: RuleKind::Key(CONFIG_VERSION_KEY.to_owned()),
-    });
+    rules.push(config::self_rule());
 
     let changes = plan(root, &rules, &config.current_version, &next)?;
+    let misses: Vec<String> = changes.iter().flat_map(FileChange::misses).collect();
+
+    if strict && !misses.is_empty() {
+        bail!(
+            "{} rule(s) matched nothing; no files were changed:\n  {}",
+            misses.len(),
+            misses.join("\n  ")
+        );
+    }
 
     writeln!(
         out,
         "Bumper bumping: v{} -> v{}",
         config.current_version, next
     )?;
+    for miss in &misses {
+        writeln!(out, "WARNING: {miss}")?;
+    }
 
     if dry_run {
         preview(&changes, out)?;
@@ -131,6 +150,50 @@ fn run_bump(
             lock::check(root, out)?;
         }
     }
+
+    Ok(())
+}
+
+/// Handle the `init` subcommand.
+///
+/// The generated configuration starts from the version declared in `Cargo.toml`, if any, so the
+/// first bump updates it; otherwise it starts from the default for `versioning_type`. The starting
+/// version, and where it came from, is reported to `out`.
+fn run_init(
+    root: &Path,
+    versioning_type: VersioningType,
+    ignore_existing: bool,
+    out: &mut impl Write,
+) -> Result<()> {
+    let manifest = cargo::load_manifest(root)?;
+
+    let (start, origin) = match manifest.as_ref().and_then(cargo::version_field) {
+        Some((key, version)) => {
+            let current_version = parse_version(version).with_context(|| {
+                format!("Could not use {CARGO_MANIFEST_FILE} `{key}` as the starting version")
+            })?;
+            let origin = format!("from {CARGO_MANIFEST_FILE} `{key}`");
+            (
+                init::Start {
+                    current_version,
+                    key,
+                },
+                origin,
+            )
+        }
+        None => {
+            let start = init::Start::default_for(versioning_type, YearMonth::now_utc());
+            let origin = "default; update it to match your project before bumping".to_owned();
+            (start, origin)
+        }
+    };
+
+    init::create(root, versioning_type, &start, ignore_existing)?;
+    writeln!(
+        out,
+        "Created {BUMPER_CONFIG_FILE} with current_version {} ({origin})",
+        start.current_version
+    )?;
 
     Ok(())
 }
