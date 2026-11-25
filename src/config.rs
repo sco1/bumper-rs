@@ -207,5 +207,5 @@ pub fn load(root: &Path) -> Result<Config> {
 }
 
 #[cfg(test)]
-#[path = "config_tests.rs"]
+#[path = "unit_tests/config_tests.rs"]
 mod tests;

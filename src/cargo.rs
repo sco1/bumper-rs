@@ -56,5 +56,5 @@ pub(crate) fn version_field(manifest: &Value) -> Option<(&'static str, &str)> {
 }
 
 #[cfg(test)]
-#[path = "cargo_tests.rs"]
+#[path = "unit_tests/cargo_tests.rs"]
 mod tests;

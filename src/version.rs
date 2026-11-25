@@ -145,5 +145,5 @@ pub fn next_version(
 }
 
 #[cfg(test)]
-#[path = "version_tests.rs"]
+#[path = "unit_tests/version_tests.rs"]
 mod tests;

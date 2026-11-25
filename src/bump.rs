@@ -299,5 +299,5 @@ pub fn preview(changes: &[FileChange], out: &mut impl Write) -> Result<()> {
 }
 
 #[cfg(test)]
-#[path = "bump_tests.rs"]
+#[path = "unit_tests/bump_tests.rs"]
 mod tests;

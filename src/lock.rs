@@ -134,5 +134,5 @@ pub(crate) fn check(root: &Path, out: &mut impl Write) -> Result<()> {
 }
 
 #[cfg(test)]
-#[path = "lock_tests.rs"]
+#[path = "unit_tests/lock_tests.rs"]
 mod tests;
