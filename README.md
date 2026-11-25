@@ -19,7 +19,7 @@ A Rust companion to my Python-based [`bumper`](https://github.com/sco1/bumper) u
 Install the [latest version](https://github.com/sco1/bumper-rs/releases/latest) from the GitHub repository:
 
 ```text
-$ cargo install --git https://github.com/sco1/bumper-rs --tag v1.0.0 --locked
+$ cargo install --git https://github.com/sco1/bumper-rs --tag v1.1.0 --locked
 ```
 
 You can confirm proper installation via the `bumper` CLI:
@@ -59,7 +59,7 @@ Options:
 Project-local installations can be achieved using:
 
 ```text
-$ cargo install --git https://github.com/sco1/bumper-rs --tag v1.0.0 --locked --root .tools/bumper
+$ cargo install --git https://github.com/sco1/bumper-rs --tag v1.1.0 --locked --root .tools/bumper
 ```
 
 Which would then be invoked by:
@@ -91,7 +91,7 @@ Exactly one replacement type:
 
 **NOTE:** `key` rules are recommended for TOML files when possible because they update one specific value rather than every matching text fragment.
 
-**NOTE:** `search` patterns are matched as plain text anywhere in the file, including inside longer strings. This is what allows a rule to target a version inside a larger string, such as a URL, but it also means a pattern that starts or ends with `{current_version}` can match a longer version containing the current one. For example, with `current_version = "1.0.1"`, the pattern `v{current_version}` also matches `v1.0.10` and `v1.0.1-rc.1`. Where possible, include surrounding text on both sides of the token (e.g. `"--tag v{current_version} "`), prefer `key` rules for TOML files, and review `bump --dry-run` output after changing a pattern.
+**NOTE:** `search` patterns are matched as plain text anywhere in the file, including inside longer strings; this allows a rule to target a version inside a larger string, such as a URL. It also means that a pattern that starts or ends with `{current_version}` can match a longer version containing the current one. For example, with `current_version = "1.0.1"`, the pattern `v{current_version}` also matches `v1.0.10` and `v1.0.1-rc.1`. Where possible, include surrounding text on both sides of the token (e.g. `"--tag v{current_version} "`).
 
 ### Example Configuration
 The basic configuration looks something like the following:
@@ -192,21 +192,6 @@ Use `--strict` to treat unmatched rules as an error instead: `bumper` lists ever
 ### `bumper init`
 A small helper to initialize a starter `.bumper.toml` file with a rule that updates the version in `Cargo.toml`.
 
-The starting `current_version` and the rule's `key` are taken from `Cargo.toml`:
-* `[package].version`, if set
-* Otherwise `[workspace.package].version`, for a virtual workspace or a package that inherits its version from a workspace in the same `Cargo.toml`
-
-```text
-$ bumper init
-Created .bumper.toml with current_version 2.3.4 (from Cargo.toml `package.version`)
-```
-
-If neither is found, `current_version` defaults to `0.1.0` (SemVer) or `<YYYY>.<MM>.0` (CalVer) and the rule targets `package.version`.
-
-**NOTE:** When the default is used, be sure to update `current_version` to match your project before bumping.
-
-`init` fails without writing anything if the version in `Cargo.toml` is not supported, e.g. a prerelease such as `1.0.0-rc.1`.
-
 <!-- [[[cog
 import subprocess
 
@@ -237,3 +222,18 @@ Options:
           Print help
 ```
 <!-- [[[end]]] (sum: bI+3y0w0UY) -->
+
+The starting `current_version` and the rule's `key` are taken from `Cargo.toml`:
+* `[package].version`, if set
+* Otherwise `[workspace.package].version`, for a virtual workspace or a package that inherits its version from a workspace in the same `Cargo.toml`
+
+```text
+$ bumper init
+Created .bumper.toml with current_version 2.3.4 (from Cargo.toml `package.version`)
+```
+
+If neither is found, `current_version` defaults to `0.1.0` (SemVer) or `<YYYY>.<MM>.0` (CalVer) and the rule targets `package.version`.
+
+**NOTE:** When the default is used, be sure to update `current_version` to match your project before bumping.
+
+`init` fails without writing anything if the version in `Cargo.toml` is not supported, e.g. a prerelease such as `1.0.0-rc.1`.
