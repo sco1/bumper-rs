@@ -4,14 +4,17 @@ use semver::Version;
 use tempfile::TempDir;
 
 use super::{
-    BUMPER_CONFIG_FILE, BumpRule, Config, RuleKind, VersioningType, init, init_template, load,
+    BUMPER_CONFIG_FILE, BumpRule, Config, RuleKind, SearchPattern, VersioningType, init,
+    init_template, load,
 };
 use crate::version::YearMonth;
 
 fn search_rule(file: &str, search: &str) -> BumpRule {
     BumpRule {
         file: file.to_owned(),
-        kind: RuleKind::Search(search.to_owned()),
+        kind: RuleKind::Search(
+            SearchPattern::try_from(search.to_owned()).expect("test pattern should be valid"),
+        ),
     }
 }
 
@@ -274,6 +277,78 @@ file = "./Cargo.toml"
             "case: {case}; expected a location; got: {message}"
         );
     }
+}
+
+#[test]
+fn search_pattern_accepts_patterns_containing_the_token() {
+    let cases = [
+        "{current_version}",
+        "v{current_version}",
+        r#"version = "{current_version}""#,
+        "{current_version} and v{current_version}",
+    ];
+
+    for case in cases {
+        assert!(
+            SearchPattern::try_from(case.to_owned()).is_ok(),
+            "case: {case}"
+        );
+    }
+}
+
+#[test]
+fn search_pattern_rejects_patterns_without_the_token() {
+    let cases = [
+        ("no token", "version"),
+        ("empty", ""),
+        ("misspelled token", "v{current-version}"),
+        ("unbraced token", "v current_version"),
+    ];
+
+    for (case, pattern) in cases {
+        let err = SearchPattern::try_from(pattern.to_owned()).expect_err("should be rejected");
+
+        assert!(
+            err.contains(&format!("'{pattern}'")) && err.contains("{current_version}"),
+            "case: {case}; error: {err}"
+        );
+    }
+}
+
+#[test]
+fn search_pattern_renders_every_token() {
+    let pattern = SearchPattern::try_from("{current_version} and v{current_version}".to_owned())
+        .expect("pattern should be valid");
+
+    assert_eq!(pattern.render("1.2.3"), "1.2.3 and v1.2.3");
+}
+
+#[test]
+fn load_rejects_a_search_rule_without_the_version_token() {
+    let message = load_error(
+        r#"
+[tool.bumper]
+current_version = "0.1.0"
+versioning_type = "semver"
+
+[[tool.bumper.files]]
+file = "./README.md"
+search = "v{current-version}"
+"#,
+    );
+
+    assert!(
+        message.contains("rule for './README.md'"),
+        "expected the file in the error; got: {message}"
+    );
+    assert!(
+        message.contains("'v{current-version}'"),
+        "expected the pattern in the error; got: {message}"
+    );
+    assert!(
+        message.contains("line "),
+        "expected a location; got: {message}"
+    );
 }
 
 #[test]

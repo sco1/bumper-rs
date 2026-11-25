@@ -16,12 +16,9 @@ use semver::Version;
 use toml_edit::Document;
 
 use crate::{
-    config::{BUMPER_CONFIG_FILE, BumpRule, RuleKind},
+    config::{BUMPER_CONFIG_FILE, BumpRule, RuleKind, SearchPattern},
     diff,
 };
-
-/// Placeholder for [`RuleKind::Search`] patterns that is substituted with a version string.
-const VERSION_TOKEN: &str = "{current_version}";
 
 /// The planned before/after contents of a single target file.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,15 +58,9 @@ fn group_rules(rules: &[BumpRule]) -> Vec<(&str, Vec<&RuleKind>)> {
     groups
 }
 
-/// Replace every occurrence of `search` (with [`VERSION_TOKEN`] set to `current`) by `search`
-/// with the token set to `next`.
-///
-/// A pattern without [`VERSION_TOKEN`] matches its own replacement, so the content is unchanged.
-fn replace_search(content: &str, search: &str, current: &str, next: &str) -> String {
-    content.replace(
-        &search.replace(VERSION_TOKEN, current),
-        &search.replace(VERSION_TOKEN, next),
-    )
+/// Replace every occurrence of `search` rendered with `current` by `search` rendered with `next`.
+fn replace_search(content: &str, search: &SearchPattern, current: &str, next: &str) -> String {
+    content.replace(&search.render(current), &search.render(next))
 }
 
 /// Replace the string value at the dotted TOML `key` if it equals `current`.

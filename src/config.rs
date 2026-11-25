@@ -18,6 +18,9 @@ use crate::version::{YearMonth, parse_version};
 /// Configuration file name, resolved relative to the project root.
 pub(crate) const BUMPER_CONFIG_FILE: &str = ".bumper.toml";
 
+/// Placeholder in a `search` pattern that is substituted with a version string.
+const VERSION_TOKEN: &str = "{current_version}";
+
 /// Versioning scheme used by the project.
 ///
 /// Deserialized from the lowercase strings `"semver"` and `"calver"`.
@@ -28,6 +31,39 @@ pub enum VersioningType {
     Calver,
 }
 
+/// A `search` pattern containing at least one `{current_version}` token.
+///
+/// Constructed only via [`TryFrom<String>`], so every instance is guaranteed to reference the
+/// version.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchPattern(String);
+
+impl SearchPattern {
+    /// Return the pattern with every `{current_version}` token replaced by `version`.
+    pub fn render(&self, version: &str) -> String {
+        self.0.replace(VERSION_TOKEN, version)
+    }
+}
+
+impl TryFrom<String> for SearchPattern {
+    type Error = String;
+
+    /// Validate that `pattern` contains the `{current_version}` token.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `pattern` does not contain `{current_version}`.
+    fn try_from(pattern: String) -> Result<Self, Self::Error> {
+        if pattern.contains(VERSION_TOKEN) {
+            Ok(Self(pattern))
+        } else {
+            Err(format!(
+                "`search` pattern '{pattern}' must contain `{VERSION_TOKEN}`"
+            ))
+        }
+    }
+}
+
 /// How a [`BumpRule`] locates the version to replace within its target file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuleKind {
@@ -35,7 +71,7 @@ pub enum RuleKind {
     ///
     /// Every occurrence of the pattern, with the token substituted by the current version, is
     /// replaced by the same pattern with the token substituted by the next version.
-    Search(String),
+    Search(SearchPattern),
     /// Dotted TOML key path, e.g. `package.version`.
     ///
     /// Only the string value at that key is updated, and only if it equals the current version.
@@ -67,7 +103,10 @@ impl TryFrom<RawBumpRule> for BumpRule {
 
     fn try_from(raw: RawBumpRule) -> Result<Self, Self::Error> {
         let kind = match (raw.search, raw.key) {
-            (Some(search), None) => RuleKind::Search(search),
+            (Some(search), None) => RuleKind::Search(
+                SearchPattern::try_from(search)
+                    .map_err(|e| format!("rule for '{}': {e}", raw.file))?,
+            ),
             (None, Some(key)) => RuleKind::Key(key),
             (Some(_), Some(_)) => {
                 return Err(format!(

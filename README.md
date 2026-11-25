@@ -79,7 +79,7 @@ $ ./.tools/bumper/bin/bumper<.exe> <...>
 * `file` - Path to target file, relative to the repository root
 
 Exactly one replacement type:
-  * `search` - Replacement string to search for in the target file; must contain a `{current_version}` tag if you want something to happen
+  * `search` - Replacement string to search for in the target file; must contain a `{current_version}` tag
   * `key` - A dotted TOML key path, such as `package.version`, whose string value is replaced if it matches the current version
     * Key paths are split on `.`, so quoted keys containing dots are not supported
     * Only table keys can be traversed; values inside arrays or arrays of tables (e.g. `[[bin]]`) cannot be targeted

@@ -5,7 +5,7 @@ use semver::Version;
 use tempfile::TempDir;
 
 use super::{apply, apply_rules, group_rules, plan, preview, replace_key, replace_search};
-use crate::config::{BumpRule, RuleKind};
+use crate::config::{BumpRule, RuleKind, SearchPattern};
 
 const SAMPLE_CARGO: &str = r#"[package]
 name = "sco1-bumper"
@@ -30,10 +30,14 @@ repos:
 ```
 "#;
 
+fn pattern(search: &str) -> SearchPattern {
+    SearchPattern::try_from(search.to_owned()).expect("test pattern should be valid")
+}
+
 fn search_rule(file: &str, search: &str) -> BumpRule {
     BumpRule {
         file: file.to_owned(),
-        kind: RuleKind::Search(search.to_owned()),
+        kind: RuleKind::Search(pattern(search)),
     }
 }
 
@@ -103,8 +107,8 @@ fn group_rules_merges_by_file_in_first_appearance_order() {
 fn group_rules_uses_the_exact_configured_spelling() {
     // Different spellings of the same file are distinct groups; plan's duplicate guard catches them
     let rules = [
-        search_rule("./README.md", "a"),
-        search_rule("README.md", "b"),
+        search_rule("./README.md", "a{current_version}"),
+        search_rule("README.md", "b{current_version}"),
     ];
 
     let groups = group_rules(&rules);
@@ -134,12 +138,6 @@ fn replace_search_substitutes_the_version_template() {
             "version = \"0.2.0\"\nother = \"0.1.0\"\n",
         ),
         (
-            "search without the token changes nothing",
-            "version = \"0.1.0\"\n",
-            "version",
-            "version = \"0.1.0\"\n",
-        ),
-        (
             "no match changes nothing",
             "nothing to see here\n",
             "v{current_version}",
@@ -148,7 +146,7 @@ fn replace_search_substitutes_the_version_template() {
     ];
 
     for (case, content, search, expected) in cases {
-        let got = replace_search(content, search, "0.1.0", "0.2.0");
+        let got = replace_search(content, &pattern(search), "0.1.0", "0.2.0");
 
         assert_eq!(got, expected, "case: {case}");
     }
@@ -270,7 +268,7 @@ fn replace_key_rejects_unusable_targets() {
 fn apply_rules_applies_mixed_rules_cumulatively_in_order() {
     let content = "[package]\nversion = \"0.1.0\"\n# pkg/0.1.0\n";
     let key = RuleKind::Key("package.version".to_owned());
-    let search = RuleKind::Search("pkg/{current_version}".to_owned());
+    let search = RuleKind::Search(pattern("pkg/{current_version}"));
 
     let got = apply_rules(content, &[&key, &search], "0.1.0", "0.2.0").expect("rules should apply");
 
