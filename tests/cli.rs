@@ -332,6 +332,90 @@ fn strict_bumps_when_every_rule_matches() {
 }
 
 #[test]
+fn init_starts_from_the_cargo_toml_version() {
+    let manifest = "[package]\nname = \"example\"\nversion = \"2.3.4\"\nedition = \"2024\"\n";
+    let repo = repo_with(&[("Cargo.toml", manifest)]);
+
+    bumper_in(&repo).args(["init"]).assert().success().stdout(
+        "Created .bumper.toml with current_version 2.3.4 (from Cargo.toml `package.version`)\n",
+    );
+
+    let generated = read(&repo, ".bumper.toml");
+    assert!(generated.contains(r#"current_version = "2.3.4""#));
+    assert!(generated.contains(r#"key = "package.version""#));
+
+    bumper_in(&repo)
+        .args(["bump", "patch", "--strict", "--no-check-lock"])
+        .assert()
+        .success();
+
+    assert!(
+        read(&repo, "Cargo.toml").contains(r#"version = "2.3.5""#),
+        "Cargo.toml should be bumped from its own version"
+    );
+}
+
+#[test]
+fn init_targets_the_workspace_version_of_a_virtual_workspace() {
+    let manifest = "[workspace]\nmembers = []\n\n[workspace.package]\nversion = \"0.4.0\"\n";
+    let repo = repo_with(&[("Cargo.toml", manifest)]);
+
+    bumper_in(&repo)
+        .args(["init"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "with current_version 0.4.0 (from Cargo.toml `workspace.package.version`)",
+        ));
+
+    let generated = read(&repo, ".bumper.toml");
+    assert!(generated.contains(r#"current_version = "0.4.0""#));
+    assert!(generated.contains(r#"key = "workspace.package.version""#));
+
+    bumper_in(&repo)
+        .args(["bump", "minor", "--strict", "--no-check-lock"])
+        .assert()
+        .success();
+
+    assert!(
+        read(&repo, "Cargo.toml").contains(r#"version = "0.5.0""#),
+        "the workspace version should be bumped"
+    );
+}
+
+#[test]
+fn init_uses_the_default_version_without_a_cargo_toml_version() {
+    let repo = TempDir::new().expect("could not create temporary directory");
+
+    bumper_in(&repo).args(["init"]).assert().success().stdout(
+        "Created .bumper.toml with current_version 0.1.0 \
+             (default; update it to match your project before bumping)\n",
+    );
+
+    assert!(read(&repo, ".bumper.toml").contains(r#"current_version = "0.1.0""#));
+}
+
+#[test]
+fn init_rejects_an_unsupported_cargo_toml_version_without_writing() {
+    let manifest = "[package]\nname = \"example\"\nversion = \"1.0.0-rc.1\"\n";
+    let repo = repo_with(&[("Cargo.toml", manifest)]);
+
+    bumper_in(&repo).args(["init"]).assert().failure().stderr(
+        predicate::str::contains(
+            "Could not use Cargo.toml `package.version` as the starting version",
+        )
+        .and(predicate::str::contains(
+            "prerelease versions are not supported",
+        )),
+    );
+
+    assert!(
+        !repo.path().join(".bumper.toml").exists(),
+        "no configuration should be written"
+    );
+}
+
+#[test]
 fn init_creates_a_usable_configuration_and_bump_can_use_it() {
     let repo = repo_with(&[("Cargo.toml", CARGO_0_1_0)]);
 

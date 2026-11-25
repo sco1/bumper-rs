@@ -1,19 +1,15 @@
-//! Loading and generating the `.bumper.toml` configuration file.
+//! Loading the `.bumper.toml` configuration file.
 //!
 //! The configuration lives under a `[tool.bumper]` table, with one `[[tool.bumper.files]]` entry
 //! per replacement rule. See the README for the full format.
-use std::{
-    fmt, fs,
-    io::{ErrorKind, Write},
-    path::Path,
-};
+use std::{fmt, fs, io::ErrorKind, path::Path};
 
 use anyhow::{Context, Result, bail};
 use clap::ValueEnum;
 use semver::Version;
 use serde::{Deserialize, Deserializer, de};
 
-use crate::version::{YearMonth, parse_version};
+use crate::version::parse_version;
 
 /// Configuration file name, resolved relative to the project root.
 pub(crate) const BUMPER_CONFIG_FILE: &str = ".bumper.toml";
@@ -208,89 +204,6 @@ pub fn load(root: &Path) -> Result<Config> {
         .with_context(|| format!("Could not parse configuration file '{BUMPER_CONFIG_FILE}'"))?;
 
     Ok(parsed.tool.bumper)
-}
-
-/// Render the starter configuration used by [`init`].
-///
-/// The starting version is `0.1.0` for SemVer, or `<year>.<month>.0` from `today` for CalVer. The
-/// template includes a single rule that bumps `package.version` in `./Cargo.toml`.
-fn init_template(versioning_type: VersioningType, today: YearMonth) -> String {
-    let current_version = match versioning_type {
-        VersioningType::Semver => "0.1.0".to_owned(),
-        VersioningType::Calver => format!("{}.{}.0", today.year, today.month),
-    };
-
-    let versioning_type = match versioning_type {
-        VersioningType::Semver => "semver",
-        VersioningType::Calver => "calver",
-    };
-
-    format!(
-        r#"[tool.bumper]
-current_version = "{current_version}"
-versioning_type = "{versioning_type}"
-
-[[tool.bumper.files]]
-file = "./Cargo.toml"
-key = "package.version"
-"#
-    )
-}
-
-/// Write a starter `.bumper.toml` into `root`.
-///
-/// `today` sets the starting version for CalVer projects. An existing configuration file is only
-/// replaced when `ignore_existing` is set; otherwise an existing file is never clobbered.
-///
-/// # Errors
-///
-/// Returns an error if the configuration file already exists (and `ignore_existing` is not set), or
-/// if it cannot be written.
-pub fn init(
-    root: &Path,
-    versioning_type: VersioningType,
-    ignore_existing: bool,
-    today: YearMonth,
-) -> Result<()> {
-    let cfg_file = root.join(BUMPER_CONFIG_FILE);
-    let contents = init_template(versioning_type, today);
-
-    if ignore_existing {
-        fs::write(&cfg_file, contents).with_context(|| {
-            format!(
-                "Could not write configuration file '{}'",
-                cfg_file.display()
-            )
-        })?;
-        return Ok(());
-    }
-
-    let mut file = match fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&cfg_file)
-    {
-        Ok(file) => file,
-        Err(e) if e.kind() == ErrorKind::AlreadyExists => {
-            bail!("Configuration file already exists: '{BUMPER_CONFIG_FILE}'")
-        }
-        Err(e) => {
-            return Err(e).with_context(|| {
-                format!(
-                    "Could not write configuration file '{}'",
-                    cfg_file.display()
-                )
-            });
-        }
-    };
-
-    file.write_all(contents.as_bytes()).with_context(|| {
-        format!(
-            "Could not write configuration file '{}'",
-            cfg_file.display()
-        )
-    })?;
-    Ok(())
 }
 
 #[cfg(test)]

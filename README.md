@@ -183,9 +183,22 @@ This usually means `current_version` has drifted from a target file, or a `searc
 Use `--strict` to treat unmatched rules as an error instead: `bumper` lists every unmatched rule and exits without modifying any files. This also applies to `--dry-run`.
 
 ### `bumper init`
-A small helper to initialize a starter `.bumper.toml` file with a default rule that updates `[package].version` in `Cargo.toml`.
+A small helper to initialize a starter `.bumper.toml` file with a rule that updates the version in `Cargo.toml`.
 
-**NOTE:** Be sure to update the sample version with your current version number before bumping with bumper.
+The starting `current_version` and the rule's `key` are taken from `Cargo.toml`:
+* `[package].version`, if set
+* Otherwise `[workspace.package].version`, for a virtual workspace or a package that inherits its version from a workspace in the same `Cargo.toml`
+
+```text
+$ bumper init
+Created .bumper.toml with current_version 2.3.4 (from Cargo.toml `package.version`)
+```
+
+If neither is found, `current_version` defaults to `0.1.0` (SemVer) or `<YYYY>.<MM>.0` (CalVer) and the rule targets `package.version`.
+
+**NOTE:** When the default is used, be sure to update `current_version` to match your project before bumping.
+
+`init` fails without writing anything if the version in `Cargo.toml` is not supported, e.g. a prerelease such as `1.0.0-rc.1`.
 
 <!-- [[[cog
 import subprocess

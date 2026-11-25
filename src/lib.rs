@@ -11,8 +11,12 @@
 //    the requested `BumpType`.
 // 3. `bump` plans the per-file text replacements and then either applies them or previews them as a
 //    diff.
+// 4. After applying, `lock` notes if `Cargo.lock` no longer matches the bumped `Cargo.toml`
+//    version. This is skipped for previews and with `--no-check-lock`.
 //
-// `run` ties these steps together for each `cli::Command`.
+// `run` dispatches each `cli::Command`: the `bump` subcommand runs the steps above, while the
+// `init` subcommand uses `cargo` to find the version declared in `Cargo.toml` and `init` to write a
+// starter `.bumper.toml` from it.
 use std::{
     env,
     io::{self, Write},
@@ -24,16 +28,19 @@ use anyhow::{Context, Result, bail};
 use clap::Parser;
 
 mod bump;
+mod cargo;
 mod cli;
 mod config;
 mod diff;
+mod init;
 mod lock;
 mod version;
 
 use bump::{FileChange, apply, plan, preview};
+use cargo::CARGO_MANIFEST_FILE;
 use cli::{Cli, Command};
-use config::{BUMPER_CONFIG_FILE, BumpRule, RuleKind};
-use version::YearMonth;
+use config::{BUMPER_CONFIG_FILE, BumpRule, RuleKind, VersioningType};
+use version::{YearMonth, parse_version};
 
 /// Dotted TOML key of the version field inside `.bumper.toml` itself.
 ///
@@ -86,7 +93,7 @@ fn run(command: Command, root: &Path, out: &mut impl Write) -> Result<()> {
         Command::Init {
             versioning_type,
             ignore_existing,
-        } => config::init(root, versioning_type, ignore_existing, YearMonth::now_utc()),
+        } => run_init(root, versioning_type, ignore_existing, out),
     }
 }
 
@@ -148,6 +155,50 @@ fn run_bump(
             lock::check(root, out)?;
         }
     }
+
+    Ok(())
+}
+
+/// Handle the `init` subcommand.
+///
+/// The generated configuration starts from the version declared in `Cargo.toml`, if any, so the
+/// first bump updates it; otherwise it starts from the default for `versioning_type`. The starting
+/// version, and where it came from, is reported to `out`.
+fn run_init(
+    root: &Path,
+    versioning_type: VersioningType,
+    ignore_existing: bool,
+    out: &mut impl Write,
+) -> Result<()> {
+    let manifest = cargo::load_manifest(root)?;
+
+    let (start, origin) = match manifest.as_ref().and_then(cargo::version_field) {
+        Some((key, version)) => {
+            let current_version = parse_version(version).with_context(|| {
+                format!("Could not use {CARGO_MANIFEST_FILE} `{key}` as the starting version")
+            })?;
+            let origin = format!("from {CARGO_MANIFEST_FILE} `{key}`");
+            (
+                init::Start {
+                    current_version,
+                    key,
+                },
+                origin,
+            )
+        }
+        None => {
+            let start = init::Start::default_for(versioning_type, YearMonth::now_utc());
+            let origin = "default; update it to match your project before bumping".to_owned();
+            (start, origin)
+        }
+    };
+
+    init::create(root, versioning_type, &start, ignore_existing)?;
+    writeln!(
+        out,
+        "Created {BUMPER_CONFIG_FILE} with current_version {} ({origin})",
+        start.current_version
+    )?;
 
     Ok(())
 }

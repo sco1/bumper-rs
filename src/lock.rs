@@ -2,28 +2,15 @@
 //!
 //! Bumping the manifest version leaves `Cargo.lock` stale until Cargo next refreshes it. This
 //! module only detects that situation and prints a note; it never modifies either file.
-use std::{
-    fs,
-    io::{ErrorKind, Write},
-    path::Path,
-};
+use std::{io::Write, path::Path};
 
 use anyhow::{Context, Result, anyhow, bail};
 use toml::Value;
 
-/// Cargo manifest file name, resolved relative to the project root.
-const CARGO_MANIFEST_FILE: &str = "Cargo.toml";
+use crate::cargo::{load_manifest, read_if_present};
+
 /// Cargo lockfile name, resolved relative to the project root.
 const CARGO_LOCK_FILE: &str = "Cargo.lock";
-
-/// Read `path` to a string, returning `Ok(None)` if the file does not exist.
-fn read_if_present(path: &Path) -> Result<Option<String>> {
-    match fs::read_to_string(path) {
-        Ok(contents) => Ok(Some(contents)),
-        Err(err) if err.kind() == ErrorKind::NotFound => Ok(None),
-        Err(err) => Err(err).with_context(|| format!("Could not read '{}'", path.display())),
-    }
-}
 
 /// Return the manifest package name and explicit version.
 ///
@@ -92,12 +79,9 @@ fn locked_versions<'a>(lock: &'a Value, name: &str) -> Vec<&'a str> {
 /// Returns an error if either file exists but cannot be read or parsed, if the manifest's
 /// `[package]` table is malformed, or if `out` cannot be written to.
 pub(crate) fn check(root: &Path, out: &mut impl Write) -> Result<()> {
-    let manifest_path = root.join(CARGO_MANIFEST_FILE);
-    let Some(manifest_contents) = read_if_present(&manifest_path)? else {
+    let Some(manifest) = load_manifest(root)? else {
         return Ok(());
     };
-    let manifest: Value = toml::from_str(&manifest_contents)
-        .with_context(|| format!("Could not parse '{}'", manifest_path.display()))?;
     let Some((name, manifest_version)) = manifest_package(&manifest)? else {
         return Ok(());
     };
